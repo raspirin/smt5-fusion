@@ -18,6 +18,7 @@ const MAX_SKILL_ASSIGNMENTS: u32 = 10_000_000;
 const MAX_ROUTE_COMBINATIONS: u32 = 250_000;
 
 type SkillMask = u8;
+type RoutesByDepth = Vec<Vec<Route>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchRequest {
@@ -73,12 +74,12 @@ pub fn search(
         skill_assignments: 0,
         route_combinations: 0,
     };
+    let routes_by_depth = solver
+        .solve(request.target, required_skills, request.max_fusion_depth)
+        .map_err(SearchError::SafetyLimitExceeded)?;
     let mut solutions = Vec::new();
 
-    for fusion_depth in 0..=request.max_fusion_depth {
-        let routes = solver
-            .solve_exact(request.target, required_skills, fusion_depth)
-            .map_err(SearchError::SafetyLimitExceeded)?;
+    for (fusion_depth, routes) in (0..=request.max_fusion_depth).zip(routes_by_depth) {
         for route in routes {
             let demon = route_replay::replay(game_data, player_context, request, &route)
                 .expect("search generated an invalid route");
@@ -169,169 +170,280 @@ fn enumerate_skill_assignments(
     assignments
 }
 
-fn advance_combination<T>(indices: &mut [usize], options: &[Vec<T>]) -> bool {
-    let Some(position) = (0..indices.len())
-        .rev()
-        .find(|position| indices[*position] + 1 < options[*position].len())
-    else {
-        return false;
-    };
-    indices[position] += 1;
-    indices[position + 1..].fill(0);
-    true
-}
-
-fn fusion_route_for_combination(
-    skills: &SkillUniverse,
-    recipe: &RecipeMeta,
-    material_skills: &[SkillMask],
-    material_route_options: &[Vec<(u32, Route)>],
-    indices: &[usize],
-    exact_fusion_depth: u32,
-) -> Option<Route> {
-    let maximum_child_depth = material_route_options
-        .iter()
-        .zip(indices)
-        .map(|(options, index)| options[*index].0)
-        .max()
-        .expect("fusion recipes must have materials");
-    if maximum_child_depth + 1 != exact_fusion_depth {
-        return None;
-    }
-
-    let materials = material_skills
-        .iter()
-        .copied()
-        .zip(material_route_options.iter().zip(indices))
-        .map(|(required, (options, index))| FusionSubroute {
-            required_skills: skills.skill_ids(required),
-            route: options[*index].1.clone(),
-        })
-        .collect();
-    Some(Route::Fusion {
-        recipe: recipe.clone(),
-        materials,
-    })
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct StateKey {
     demon: DemonId,
     required_skills: SkillMask,
-    exact_fusion_depth: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CachedRouteHandle {
+    state: StateKey,
+    fusion_depth: u32,
+    route_index: usize,
+}
+
+#[derive(Default)]
+struct MemoEntry {
+    routes_by_depth: RoutesByDepth,
+}
+
+fn visit_route_combinations<E>(
+    material_route_options: &[Vec<CachedRouteHandle>],
+    required_child_depth: u32,
+    indices: &mut [usize],
+    visit: &mut impl FnMut(&[usize]) -> Result<(), E>,
+) -> Result<(), E> {
+    let mut suffix_can_reach_required_depth = vec![false; material_route_options.len() + 1];
+    for position in (0..material_route_options.len()).rev() {
+        suffix_can_reach_required_depth[position] = suffix_can_reach_required_depth[position + 1]
+            || material_route_options[position]
+                .iter()
+                .any(|option| option.fusion_depth == required_child_depth);
+    }
+
+    visit_route_combinations_from(
+        material_route_options,
+        required_child_depth,
+        &suffix_can_reach_required_depth,
+        0,
+        false,
+        indices,
+        visit,
+    )
+}
+
+fn visit_route_combinations_from<E>(
+    material_route_options: &[Vec<CachedRouteHandle>],
+    required_child_depth: u32,
+    suffix_can_reach_required_depth: &[bool],
+    position: usize,
+    has_required_depth: bool,
+    indices: &mut [usize],
+    visit: &mut impl FnMut(&[usize]) -> Result<(), E>,
+) -> Result<(), E> {
+    if position == material_route_options.len() {
+        return if has_required_depth {
+            visit(indices)
+        } else {
+            Ok(())
+        };
+    }
+    if !has_required_depth && !suffix_can_reach_required_depth[position] {
+        return Ok(());
+    }
+
+    for (option_index, option) in material_route_options[position].iter().enumerate() {
+        indices[position] = option_index;
+        visit_route_combinations_from(
+            material_route_options,
+            required_child_depth,
+            suffix_can_reach_required_depth,
+            position + 1,
+            has_required_depth || option.fusion_depth == required_child_depth,
+            indices,
+            visit,
+        )?;
+    }
+    Ok(())
+}
+
+fn fusion_route_for_combination(
+    skills: &SkillUniverse,
+    memo: &HashMap<StateKey, MemoEntry>,
+    recipe: &RecipeMeta,
+    material_skills: &[SkillMask],
+    material_route_options: &[Vec<CachedRouteHandle>],
+    indices: &[usize],
+) -> Route {
+    let materials = material_skills
+        .iter()
+        .copied()
+        .zip(material_route_options.iter().zip(indices))
+        .map(|(required, (options, index))| {
+            let selected = options[*index];
+            let route = memo
+                .get(&selected.state)
+                .and_then(|entry| entry.routes_by_depth.get(selected.fusion_depth as usize))
+                .and_then(|routes| routes.get(selected.route_index))
+                .expect("cached route handle must resolve")
+                .clone();
+            FusionSubroute {
+                required_skills: skills.skill_ids(required),
+                route,
+            }
+        })
+        .collect();
+    Route::Fusion {
+        recipe: recipe.clone(),
+        materials,
+    }
 }
 
 struct Solver<'a> {
     game_data: &'a GameData,
     player_context: &'a PlayerContext,
     skills: &'a SkillUniverse,
-    memo: HashMap<StateKey, Vec<Route>>,
+    memo: HashMap<StateKey, MemoEntry>,
     expanded_states: u32,
     skill_assignments: u32,
     route_combinations: u32,
 }
 
 impl Solver<'_> {
-    fn solve_exact(
+    fn solve(
         &mut self,
         demon: DemonId,
         required_skills: SkillMask,
-        exact_fusion_depth: u32,
-    ) -> Result<Vec<Route>, SearchSafetyLimit> {
+        maximum_fusion_depth: u32,
+    ) -> Result<RoutesByDepth, SearchSafetyLimit> {
         let key = StateKey {
             demon,
             required_skills,
-            exact_fusion_depth,
         };
-        if let Some(routes) = self.memo.get(&key) {
-            return Ok(routes.clone());
-        }
-        self.record_state_expansion()?;
+        self.ensure_through(key, maximum_fusion_depth)?;
+        Ok(self
+            .memo
+            .remove(&key)
+            .expect("root state must be cached")
+            .routes_by_depth)
+    }
 
-        let Some(demon_meta) = self.game_data.demons().get(demon) else {
-            self.memo.insert(key, Vec::new());
+    fn ensure_through(
+        &mut self,
+        key: StateKey,
+        maximum_fusion_depth: u32,
+    ) -> Result<(), SearchSafetyLimit> {
+        self.memo.entry(key).or_default();
+        loop {
+            let next_depth = u32::try_from(
+                self.memo
+                    .get(&key)
+                    .expect("state must be cached")
+                    .routes_by_depth
+                    .len(),
+            )
+            .expect("cached depth count must fit in u32");
+            if next_depth > maximum_fusion_depth {
+                return Ok(());
+            }
+
+            self.record_state_expansion()?;
+            let routes = self.solve_layer(key, next_depth)?;
+            self.memo
+                .get_mut(&key)
+                .expect("state must be cached")
+                .routes_by_depth
+                .push(routes);
+        }
+    }
+
+    fn solve_layer(
+        &mut self,
+        key: StateKey,
+        exact_fusion_depth: u32,
+    ) -> Result<Vec<Route>, SearchSafetyLimit> {
+        let Some(demon_meta) = self.game_data.demons().get(key.demon) else {
             return Ok(Vec::new());
         };
         if !is_available(demon_meta, self.player_context) {
-            self.memo.insert(key, Vec::new());
             return Ok(Vec::new());
         }
         let base_level = demon_meta.base_level;
         let natural_skills = demon_meta.natural_skills.clone();
-        let levels = self.meaningful_levels(base_level, &natural_skills, required_skills);
-        let mut routes = Vec::new();
+        let levels = self.meaningful_levels(base_level, &natural_skills, key.required_skills);
 
         if exact_fusion_depth == 0 {
-            if let Some(route) =
-                Self::make_upgrade_only_route(demon, required_skills, base_level, &levels)
-            {
-                routes.push(route);
-            }
-        } else {
-            let direct_recipes = self
-                .player_context
-                .get_direct_recipes(demon)
-                .unwrap_or_default()
-                .to_vec();
-            let inheritance_options = levels
-                .into_iter()
-                .filter_map(|(target_level, local_skills)| {
-                    let skills_to_inherit = required_skills & !local_skills;
-                    self.are_inheritable(skills_to_inherit)
-                        .then_some((target_level, skills_to_inherit))
-                })
-                .collect::<Vec<_>>();
-            let fusion_inputs =
-                inheritance_options
-                    .into_iter()
-                    .flat_map(|(target_level, skills_to_inherit)| {
-                        direct_recipes.iter().flat_map(move |recipe| {
-                            enumerate_skill_assignments(skills_to_inherit, recipe.materials.len())
-                                .into_iter()
-                                .map(move |material_skills| (target_level, recipe, material_skills))
-                        })
-                    });
-            for (target_level, recipe, material_skills) in fusion_inputs {
-                self.record_skill_assignment()?;
-                let mut material_route_options = Vec::with_capacity(recipe.materials.len());
-                for (&material, &required) in recipe.materials.iter().zip(&material_skills) {
-                    let mut options = Vec::new();
-                    for child_depth in 0..exact_fusion_depth {
-                        for route in self.solve_exact(material, required, child_depth)? {
-                            options.push((child_depth, route));
-                        }
-                    }
-                    if options.is_empty() {
-                        material_route_options.clear();
-                        break;
-                    }
-                    material_route_options.push(options);
-                }
-                if material_route_options.is_empty() {
-                    continue;
-                }
+            return Ok(Self::make_upgrade_only_route(
+                key.demon,
+                key.required_skills,
+                base_level,
+                &levels,
+            )
+            .into_iter()
+            .collect());
+        }
 
-                let mut indices = vec![0; material_route_options.len()];
-                loop {
+        let direct_recipes = self
+            .player_context
+            .get_direct_recipes(key.demon)
+            .unwrap_or_default()
+            .to_vec();
+        let inheritance_options = levels
+            .into_iter()
+            .filter_map(|(target_level, local_skills)| {
+                let skills_to_inherit = key.required_skills & !local_skills;
+                self.are_inheritable(skills_to_inherit)
+                    .then_some((target_level, skills_to_inherit))
+            })
+            .collect::<Vec<_>>();
+        let fusion_inputs =
+            inheritance_options
+                .into_iter()
+                .flat_map(|(target_level, skills_to_inherit)| {
+                    direct_recipes.iter().flat_map(move |recipe| {
+                        enumerate_skill_assignments(skills_to_inherit, recipe.materials.len())
+                            .into_iter()
+                            .map(move |material_skills| (target_level, recipe, material_skills))
+                    })
+                });
+        let mut routes = Vec::new();
+
+        for (target_level, recipe, material_skills) in fusion_inputs {
+            self.record_skill_assignment()?;
+            let mut material_route_options = Vec::with_capacity(recipe.materials.len());
+            for (&material, &required) in recipe.materials.iter().zip(&material_skills) {
+                let child_state = StateKey {
+                    demon: material,
+                    required_skills: required,
+                };
+                self.ensure_through(child_state, exact_fusion_depth - 1)?;
+                let child_routes_by_depth = &self
+                    .memo
+                    .get(&child_state)
+                    .expect("child state must be cached")
+                    .routes_by_depth;
+                let options = (0..exact_fusion_depth)
+                    .zip(child_routes_by_depth)
+                    .flat_map(|(fusion_depth, routes)| {
+                        (0..routes.len()).map(move |route_index| CachedRouteHandle {
+                            state: child_state,
+                            fusion_depth,
+                            route_index,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                if options.is_empty() {
+                    material_route_options.clear();
+                    break;
+                }
+                material_route_options.push(options);
+            }
+            if material_route_options.is_empty() {
+                continue;
+            }
+
+            let mut indices = vec![0; material_route_options.len()];
+            visit_route_combinations(
+                &material_route_options,
+                exact_fusion_depth - 1,
+                &mut indices,
+                &mut |indices| {
                     self.record_route_combination()?;
-                    if let Some(route) = fusion_route_for_combination(
+                    let route = fusion_route_for_combination(
                         self.skills,
+                        &self.memo,
                         recipe,
                         &material_skills,
                         &material_route_options,
-                        &indices,
-                        exact_fusion_depth,
-                    ) {
-                        routes.push(Self::add_upgrades(base_level, target_level, route));
-                    }
-                    if !advance_combination(&mut indices, &material_route_options) {
-                        break;
-                    }
-                }
-            }
+                        indices,
+                    );
+                    routes.push(Self::add_upgrades(base_level, target_level, route));
+                    Ok(())
+                },
+            )?;
         }
 
-        self.memo.insert(key, routes.clone());
         Ok(routes)
     }
 
