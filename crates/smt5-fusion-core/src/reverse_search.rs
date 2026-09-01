@@ -143,7 +143,7 @@ impl SkillUniverse {
 }
 
 fn enumerate_skill_assignments(
-    inherited_skills: SkillMask,
+    skills_to_inherit: SkillMask,
     material_count: usize,
 ) -> Vec<Vec<SkillMask>> {
     if material_count == 0 {
@@ -152,7 +152,7 @@ fn enumerate_skill_assignments(
 
     let skill_bits = (0..SkillMask::BITS)
         .map(|index| 1_u8 << index)
-        .filter(|bit| inherited_skills & bit != 0)
+        .filter(|bit| skills_to_inherit & bit != 0)
         .collect::<Vec<_>>();
     let assignment_count = material_count.pow(skill_bits.len() as u32);
     let mut assignments = Vec::with_capacity(assignment_count);
@@ -185,11 +185,11 @@ fn fusion_route_for_combination(
     skills: &SkillUniverse,
     recipe: &RecipeMeta,
     material_skills: &[SkillMask],
-    material_options: &[Vec<(u32, Route)>],
+    material_route_options: &[Vec<(u32, Route)>],
     indices: &[usize],
     exact_fusion_depth: u32,
 ) -> Option<Route> {
-    let maximum_child_depth = material_options
+    let maximum_child_depth = material_route_options
         .iter()
         .zip(indices)
         .map(|(options, index)| options[*index].0)
@@ -202,7 +202,7 @@ fn fusion_route_for_combination(
     let materials = material_skills
         .iter()
         .copied()
-        .zip(material_options.iter().zip(indices))
+        .zip(material_route_options.iter().zip(indices))
         .map(|(required, (options, index))| FusionSubroute {
             required_skills: skills.skill_ids(required),
             route: options[*index].1.clone(),
@@ -276,24 +276,24 @@ impl Solver<'_> {
             let inheritance_options = levels
                 .into_iter()
                 .filter_map(|(target_level, local_skills)| {
-                    let inherited_skills = required_skills & !local_skills;
-                    self.are_inheritable(inherited_skills)
-                        .then_some((target_level, inherited_skills))
+                    let skills_to_inherit = required_skills & !local_skills;
+                    self.are_inheritable(skills_to_inherit)
+                        .then_some((target_level, skills_to_inherit))
                 })
                 .collect::<Vec<_>>();
             let fusion_inputs =
                 inheritance_options
                     .into_iter()
-                    .flat_map(|(target_level, inherited_skills)| {
+                    .flat_map(|(target_level, skills_to_inherit)| {
                         direct_recipes.iter().flat_map(move |recipe| {
-                            enumerate_skill_assignments(inherited_skills, recipe.materials.len())
+                            enumerate_skill_assignments(skills_to_inherit, recipe.materials.len())
                                 .into_iter()
                                 .map(move |material_skills| (target_level, recipe, material_skills))
                         })
                     });
             for (target_level, recipe, material_skills) in fusion_inputs {
                 self.record_skill_assignment()?;
-                let mut material_options = Vec::with_capacity(recipe.materials.len());
+                let mut material_route_options = Vec::with_capacity(recipe.materials.len());
                 for (&material, &required) in recipe.materials.iter().zip(&material_skills) {
                     let mut options = Vec::new();
                     for child_depth in 0..exact_fusion_depth {
@@ -302,29 +302,29 @@ impl Solver<'_> {
                         }
                     }
                     if options.is_empty() {
-                        material_options.clear();
+                        material_route_options.clear();
                         break;
                     }
-                    material_options.push(options);
+                    material_route_options.push(options);
                 }
-                if material_options.is_empty() {
+                if material_route_options.is_empty() {
                     continue;
                 }
 
-                let mut indices = vec![0; material_options.len()];
+                let mut indices = vec![0; material_route_options.len()];
                 loop {
                     self.record_route_combination()?;
                     if let Some(route) = fusion_route_for_combination(
                         self.skills,
                         recipe,
                         &material_skills,
-                        &material_options,
+                        &material_route_options,
                         &indices,
                         exact_fusion_depth,
                     ) {
                         routes.push(Self::add_upgrades(base_level, target_level, route));
                     }
-                    if !advance_combination(&mut indices, &material_options) {
+                    if !advance_combination(&mut indices, &material_route_options) {
                         break;
                     }
                 }

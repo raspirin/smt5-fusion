@@ -647,12 +647,12 @@ fn depth_one_routes(
     let mut routes = Vec::new();
 
     for (target_level, local_skills) in target_levels(target, required_skills) {
-        let inherited_skills = required_skills
+        let skills_to_inherit = required_skills
             .iter()
             .copied()
             .filter(|skill| !local_skills.contains(skill))
             .collect::<Vec<_>>();
-        if inherited_skills
+        if skills_to_inherit
             .iter()
             .any(|skill| !data.skills().get(*skill).unwrap().inheritable)
         {
@@ -660,7 +660,7 @@ fn depth_one_routes(
         }
 
         for recipe in context.get_direct_recipes(target.id).unwrap_or_default() {
-            for assignment in skill_assignments(&inherited_skills, recipe.materials.len()) {
+            for assignment in skill_assignments(&skills_to_inherit, recipe.materials.len()) {
                 let materials = recipe
                     .materials
                     .iter()

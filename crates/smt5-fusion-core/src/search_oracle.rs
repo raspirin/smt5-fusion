@@ -298,12 +298,13 @@ fn build_oracle(
                 let mut state_routes = Vec::new();
                 let demon_meta = game_data.demons().get(demon).unwrap();
                 for (target_level, local_skills) in target_levels(demon_meta, required_skills) {
-                    let inherited_skills = required_skills & !local_skills;
-                    if !all_inheritable(game_data, inherited_skills) {
+                    let skills_to_inherit = required_skills & !local_skills;
+                    if !all_inheritable(game_data, skills_to_inherit) {
                         continue;
                     }
                     for recipe in player_context.get_direct_recipes(demon).unwrap_or_default() {
-                        for material_skills in assignments(inherited_skills, recipe.materials.len())
+                        for material_skills in
+                            assignments(skills_to_inherit, recipe.materials.len())
                         {
                             let options = recipe
                                 .materials
