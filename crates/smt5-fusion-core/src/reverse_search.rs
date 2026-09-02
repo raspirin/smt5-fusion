@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     data::game_data::GameData,
@@ -18,7 +18,7 @@ const MAX_SKILL_ASSIGNMENTS: u32 = 10_000_000;
 const MAX_ROUTE_COMBINATIONS: u32 = 250_000;
 
 type SkillMask = u8;
-type RoutesByDepth = Vec<Vec<Route>>;
+type RoutesByDepth = Vec<Vec<Rc<Route>>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchRequest {
@@ -29,7 +29,7 @@ pub struct SearchRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchSolution {
-    pub route: Route,
+    pub route: Rc<Route>,
     pub demon: Demon,
     pub fusion_depth: u32,
 }
@@ -81,7 +81,7 @@ pub fn search(
 
     for (fusion_depth, routes) in (0..=request.max_fusion_depth).zip(routes_by_depth) {
         for route in routes {
-            let demon = route_replay::replay(game_data, player_context, request, &route)
+            let demon = route_replay::replay(game_data, player_context, request, route.as_ref())
                 .expect("search generated an invalid route");
             solutions.push(SearchSolution {
                 route,
@@ -307,29 +307,29 @@ fn fusion_route_for_combination(
     material_skills: &[SkillMask],
     material_route_options: &[Vec<CachedRouteHandle>],
     indices: &[usize],
-) -> Route {
+) -> Rc<Route> {
     let materials = material_skills
         .iter()
         .copied()
         .zip(material_route_options.iter().zip(indices))
         .map(|(required, (options, index))| {
             let selected = options[*index];
-            let route = memo
-                .get(&selected.state)
-                .and_then(|entry| entry.routes_by_depth.get(selected.fusion_depth as usize))
-                .and_then(|routes| routes.get(selected.route_index))
-                .expect("cached route handle must resolve")
-                .clone();
+            let route = Rc::clone(
+                memo.get(&selected.state)
+                    .and_then(|entry| entry.routes_by_depth.get(selected.fusion_depth as usize))
+                    .and_then(|routes| routes.get(selected.route_index))
+                    .expect("cached route handle must resolve"),
+            );
             FusionSubroute {
                 required_skills: skills.skill_ids(required),
                 route,
             }
         })
         .collect();
-    Route::Fusion {
+    Rc::new(Route::Fusion {
         recipe: recipe.clone(),
         materials,
-    }
+    })
 }
 
 struct Solver<'a> {
@@ -394,7 +394,7 @@ impl Solver<'_> {
         &mut self,
         key: StateKey,
         exact_fusion_depth: u32,
-    ) -> Result<Vec<Route>, SearchSafetyLimit> {
+    ) -> Result<Vec<Rc<Route>>, SearchSafetyLimit> {
         let Some(demon_meta) = self.game_data.demons().get(key.demon) else {
             return Ok(Vec::new());
         };
@@ -553,7 +553,7 @@ impl Solver<'_> {
         required_skills: SkillMask,
         base_level: u32,
         levels: &[(u32, SkillMask)],
-    ) -> Option<Route> {
+    ) -> Option<Rc<Route>> {
         let target_level = levels
             .iter()
             .find(|(_, local)| required_skills & !local == 0)?
@@ -561,7 +561,7 @@ impl Solver<'_> {
         Some(Self::add_upgrades(
             base_level,
             target_level,
-            Route::Direct { demon },
+            Rc::new(Route::Direct { demon }),
         ))
     }
 
@@ -619,12 +619,9 @@ impl Solver<'_> {
         })
     }
 
-    fn add_upgrades(base_level: u32, target_level: u32, mut previous: Route) -> Route {
+    fn add_upgrades(base_level: u32, target_level: u32, mut previous: Rc<Route>) -> Rc<Route> {
         for level in base_level + 1..=target_level {
-            previous = Route::Upgrade {
-                level,
-                previous: Box::new(previous),
-            };
+            previous = Rc::new(Route::Upgrade { level, previous });
         }
         previous
     }

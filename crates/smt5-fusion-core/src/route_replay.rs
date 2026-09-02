@@ -84,7 +84,7 @@ impl Replayer<'_> {
         match route {
             Route::Direct { .. } => self.replay_direct(demon_meta, required_skills),
             Route::Upgrade { level, previous } => {
-                self.replay_upgrade(demon_meta, required_skills, *level, previous)
+                self.replay_upgrade(demon_meta, required_skills, *level, previous.as_ref())
             }
             Route::Fusion { recipe, materials } => {
                 self.replay_fusion(demon_meta, required_skills, recipe, materials)
@@ -206,7 +206,11 @@ impl Replayer<'_> {
 
         let mut maximum_material_depth = 0;
         for (material, subroute) in recipe_meta.materials.iter().zip(subroutes) {
-            let (_, depth) = self.replay(*material, &subroute.required_skills, &subroute.route)?;
+            let (_, depth) = self.replay(
+                *material,
+                &subroute.required_skills,
+                subroute.route.as_ref(),
+            )?;
             maximum_material_depth = maximum_material_depth.max(depth);
         }
 
@@ -286,7 +290,7 @@ fn normalize_required_skills(
 fn route_demon(route: &Route) -> DemonId {
     match route {
         Route::Direct { demon } => *demon,
-        Route::Upgrade { previous, .. } => route_demon(previous),
+        Route::Upgrade { previous, .. } => route_demon(previous.as_ref()),
         Route::Fusion { recipe, .. } => recipe.result,
     }
 }

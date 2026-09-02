@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use super::{demon::DemonId, recipe::RecipeMeta, skill::SkillId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7,7 +9,7 @@ pub enum Route {
     },
     Upgrade {
         level: u32,
-        previous: Box<Route>,
+        previous: Rc<Route>,
     },
     Fusion {
         recipe: RecipeMeta,
@@ -18,5 +20,5 @@ pub enum Route {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FusionSubroute {
     pub required_skills: Vec<SkillId>,
-    pub route: Route,
+    pub route: Rc<Route>,
 }

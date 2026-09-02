@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     data::{
@@ -60,7 +60,7 @@ fn every_search_result_matches_the_bottom_up_oracle() {
                 let solutions = search(&data, &context, &request).unwrap();
                 let actual = solutions
                     .iter()
-                    .map(|solution| solution.route.clone())
+                    .map(|solution| solution.route.as_ref().clone())
                     .collect::<Vec<_>>();
                 assert_same_routes(&actual, &expected, &request);
                 for (index, solution) in solutions.iter().enumerate() {
@@ -72,7 +72,7 @@ fn every_search_result_matches_the_bottom_up_oracle() {
                     assert!(
                         actual[..index]
                             .iter()
-                            .all(|previous| previous != &solution.route)
+                            .all(|previous| previous != solution.route.as_ref())
                     );
                 }
             }
@@ -145,7 +145,7 @@ fn replay_rejects_invalid_routes() {
             &upgrade_request,
             &Route::Upgrade {
                 level: 3,
-                previous: Box::new(Route::Direct { demon: DemonId(2) }),
+                previous: Rc::new(Route::Direct { demon: DemonId(2) }),
             },
         ),
         Err(ReplayError::InvalidUpgrade {
@@ -169,7 +169,7 @@ fn replay_rejects_invalid_routes() {
             maximum: 0,
         })
     );
-    let Route::Fusion { materials, .. } = &mut solutions[0].route else {
+    let Route::Fusion { materials, .. } = Rc::make_mut(&mut solutions[0].route) else {
         panic!("expected a fusion route");
     };
     materials
@@ -256,7 +256,7 @@ fn formal_data_solutions_are_valid() {
         assert!(!solutions.is_empty(), "expected solutions for {request:?}");
         if request.target == crate::dataset::demon_ids::SATAN {
             assert!(solutions.iter().any(|solution| {
-                matches!(&solution.route, Route::Fusion { recipe, .. } if recipe.is_special)
+                matches!(solution.route.as_ref(), Route::Fusion { recipe, .. } if recipe.is_special)
             }));
         }
         for (index, solution) in solutions.iter().enumerate() {
@@ -339,7 +339,7 @@ fn build_oracle(
                                     .zip(combination.iter().map(|(_, route)| route.clone()))
                                     .map(|(required, route)| FusionSubroute {
                                         required_skills: skill_ids(required),
-                                        route,
+                                        route: Rc::new(route),
                                     })
                                     .collect();
                                 state_routes.push(add_upgrades(
@@ -469,7 +469,7 @@ fn add_upgrades(base_level: u32, target_level: u32, mut route: Route) -> Route {
     for level in base_level + 1..=target_level {
         route = Route::Upgrade {
             level,
-            previous: Box::new(route),
+            previous: Rc::new(route),
         };
     }
     route
