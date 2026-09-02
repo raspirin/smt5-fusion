@@ -1,5 +1,7 @@
 use std::{collections::HashMap, rc::Rc};
 
+use num_bigint::BigUint;
+
 use crate::{
     data::{
         demon_catalog::DemonCatalog, game_data::GameData, skill_catalog::SkillCatalog,
@@ -11,9 +13,10 @@ use crate::{
         race::Race,
         recipe::RecipeMeta,
         route::{FusionSubroute, Route},
+        route_space::{RouteChoice, RouteSelector, RouteSpace},
         skill::{Skill, SkillCategory, SkillFlags, SkillId},
     },
-    reverse_search::{SearchError, SearchRequest, search},
+    reverse_search::{SearchError, SearchRequest, SearchSolution, search},
     route_replay::{ReplayError, replay},
 };
 
@@ -34,6 +37,95 @@ fn search_request(
         required_skills,
         max_fusion_depth,
     }
+}
+
+fn search_solutions(
+    game_data: &GameData,
+    player_context: &PlayerContext,
+    request: &SearchRequest,
+) -> Result<Vec<SearchSolution>, SearchError> {
+    search(game_data, player_context, request)
+        .map(|selector| expand_selector(game_data, player_context, request, &selector))
+}
+
+fn expand_selector(
+    game_data: &GameData,
+    player_context: &PlayerContext,
+    request: &SearchRequest,
+    selector: &RouteSelector,
+) -> Vec<SearchSolution> {
+    selector
+        .routes
+        .iter()
+        .flat_map(|space| {
+            expand_space(game_data, space)
+                .into_iter()
+                .map(|route| SearchSolution {
+                    demon: replay(game_data, player_context, request, route.as_ref()).unwrap(),
+                    fusion_depth: space.fusion_depth,
+                    route,
+                })
+        })
+        .collect()
+}
+
+fn expand_space(game_data: &GameData, space: &Rc<RouteSpace>) -> Vec<Rc<Route>> {
+    let base_level = game_data.demons().get(space.demon).unwrap().base_level;
+    let mut result = Vec::new();
+    for choice in &space.choices {
+        match choice {
+            RouteChoice::Direct(direct) => result.push(Rc::new(add_upgrades(
+                base_level,
+                direct.target_level,
+                Route::Direct { demon: space.demon },
+            ))),
+            RouteChoice::Fusion(fusion) => {
+                let options = fusion
+                    .materials
+                    .iter()
+                    .map(|material| {
+                        material
+                            .routes
+                            .iter()
+                            .flat_map(|child| {
+                                expand_space(game_data, child)
+                                    .into_iter()
+                                    .map(move |route| (child.fusion_depth, route))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>();
+                if options.iter().any(Vec::is_empty) {
+                    continue;
+                }
+                combine(&options, 0, &mut Vec::new(), &mut |selected| {
+                    if selected.iter().map(|(depth, _)| *depth).max().unwrap() + 1
+                        != space.fusion_depth
+                    {
+                        return;
+                    }
+                    let materials = fusion
+                        .materials
+                        .iter()
+                        .zip(selected)
+                        .map(|(material, (_, route))| FusionSubroute {
+                            required_skills: material.required_skills.clone(),
+                            route: Rc::clone(route),
+                        })
+                        .collect();
+                    result.push(Rc::new(add_upgrades(
+                        base_level,
+                        fusion.target_level,
+                        Route::Fusion {
+                            recipe: fusion.recipe.as_ref().clone(),
+                            materials,
+                        },
+                    )));
+                });
+            }
+        }
+    }
+    result
 }
 
 #[test]
@@ -57,12 +149,27 @@ fn every_search_result_matches_the_bottom_up_oracle() {
                             .cloned()
                     })
                     .collect::<Vec<_>>();
-                let solutions = search(&data, &context, &request).unwrap();
+                let selector = search(&data, &context, &request).unwrap();
+                let solutions = expand_selector(&data, &context, &request, &selector);
+                assert_eq!(
+                    selector.route_count,
+                    BigUint::from(expected.len()),
+                    "request={request:?}"
+                );
                 let actual = solutions
                     .iter()
                     .map(|solution| solution.route.as_ref().clone())
                     .collect::<Vec<_>>();
                 assert_same_routes(&actual, &expected, &request);
+                match (selector.default_selection.as_ref(), expected.first()) {
+                    (Some(selection), Some(expected)) => assert_eq!(
+                        selection.materialize_route(&data).unwrap().as_ref(),
+                        expected,
+                        "request={request:?}"
+                    ),
+                    (None, None) => {}
+                    _ => panic!("default-route mismatch for {request:?}"),
+                }
                 for (index, solution) in solutions.iter().enumerate() {
                     assert_eq!(solution.fusion_depth, route_depth(&solution.route));
                     assert_eq!(
@@ -86,7 +193,7 @@ fn fusion_remains_available_when_the_result_already_has_the_skill() {
     let mut context = PlayerContext::default();
     context.prepare_direct_recipes(&data);
     let request = search_request(DemonId(6), vec![SkillId(4)], 2);
-    let solutions = search(&data, &context, &request).unwrap();
+    let solutions = search_solutions(&data, &context, &request).unwrap();
 
     assert_eq!(
         solutions
@@ -105,9 +212,57 @@ fn search_is_stable_and_normalizes_required_skills() {
     let canonical = search_request(DemonId(7), vec![SkillId(1), SkillId(2)], 2);
     let reordered = search_request(DemonId(7), vec![SkillId(2), SkillId(1), SkillId(2)], 2);
 
-    let expected = search(&data, &context, &canonical).unwrap();
-    assert_eq!(search(&data, &context, &canonical).unwrap(), expected);
-    assert_eq!(search(&data, &context, &reordered).unwrap(), expected);
+    let expected = search_solutions(&data, &context, &canonical).unwrap();
+    assert_eq!(
+        search_solutions(&data, &context, &canonical).unwrap(),
+        expected
+    );
+    assert_eq!(
+        search_solutions(&data, &context, &reordered).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn route_selector_replaces_material_with_the_first_compatible_choice() {
+    let data = crate::dataset::game_data();
+    let mut context = PlayerContext::default();
+    context.set_konohana_sakuya_dlc(true);
+    context.set_dagda_dlc(true);
+    context.prepare_direct_recipes(&data);
+    let request = search_request(crate::dataset::demon_ids::PIXIE, Vec::new(), 1);
+    let selector = search(&data, &context, &request).unwrap();
+    let root = crate::model::route_space::RoutePath(Vec::new());
+    let current = selector
+        .default_selection
+        .as_ref()
+        .unwrap()
+        .select_choice(&data, &context, &root, Rc::clone(&selector.routes[1]), 0)
+        .unwrap()
+        .new_subtree;
+    let current_route = current.materialize_route(&data).unwrap();
+    let Route::Fusion {
+        recipe: current_recipe,
+        ..
+    } = current_route.as_ref()
+    else {
+        panic!("expected fusion route");
+    };
+    let replacement = current
+        .material_replacements(&root, 0)
+        .unwrap()
+        .into_iter()
+        .find(|material| !current_recipe.materials.contains(material))
+        .expect("expected a material from another recipe");
+
+    let update = current
+        .replace_material(&data, &context, &root, 0, replacement)
+        .unwrap();
+    let route = update.new_subtree.materialize_route(&data).unwrap();
+    let Route::Fusion { recipe, .. } = route.as_ref() else {
+        panic!("expected fusion route");
+    };
+    assert!(recipe.materials.contains(&replacement));
 }
 
 #[test]
@@ -155,7 +310,7 @@ fn replay_rejects_invalid_routes() {
     );
 
     let request = search_request(DemonId(5), vec![SkillId(1)], 1);
-    let mut solutions = search(&data, &context, &request).unwrap();
+    let mut solutions = search_solutions(&data, &context, &request).unwrap();
     let fusion_route = solutions[0].route.clone();
     assert_eq!(
         replay(
@@ -252,7 +407,7 @@ fn formal_data_solutions_are_valid() {
     ];
 
     for request in requests {
-        let solutions = search(&data, &context, &request).unwrap();
+        let solutions = search_solutions(&data, &context, &request).unwrap();
         assert!(!solutions.is_empty(), "expected solutions for {request:?}");
         if request.target == crate::dataset::demon_ids::SATAN {
             assert!(solutions.iter().any(|solution| {
@@ -448,11 +603,11 @@ fn assignments(skills: SkillMask, material_count: usize) -> Vec<Vec<SkillMask>> 
     result
 }
 
-fn combine(
-    options: &[Vec<(u32, Route)>],
+fn combine<T: Clone>(
+    options: &[Vec<T>],
     index: usize,
-    selected: &mut Vec<(u32, Route)>,
-    visit: &mut impl FnMut(&[(u32, Route)]),
+    selected: &mut Vec<T>,
+    visit: &mut impl FnMut(&[T]),
 ) {
     if index == options.len() {
         visit(selected);

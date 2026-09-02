@@ -1,5 +1,6 @@
-use std::time::Instant;
+use std::{rc::Rc, time::Instant};
 
+use num_bigint::BigUint;
 use smt5_fusion_core::{
     data::game_data::GameData,
     dataset::{self, demon_ids, skill_ids},
@@ -7,9 +8,10 @@ use smt5_fusion_core::{
         demon::{DemonContent, DemonMeta, SkillAcquisition},
         player_context::PlayerContext,
         route::{FusionSubroute, Route},
+        route_space::{RouteChoice, RouteSelector, RouteSpace},
         skill::{Skill, SkillCategory, SkillId},
     },
-    reverse_search::{SearchError, SearchRequest, SearchSafetyLimit, SearchSolution, search},
+    reverse_search::{SearchError, SearchRequest, SearchSolution, search},
     route_replay::replay,
 };
 
@@ -392,9 +394,11 @@ fn formal_depth_two_regression_cases_remain_replayable_and_stable() {
     ];
 
     for (request, expected_depth_counts, expected_fingerprint) in cases {
-        let first = search(&data, &context, &request).unwrap();
+        let selector = search(&data, &context, &request).unwrap();
+        let first = expand_selector(&data, &context, &request, &selector);
         assert_solution_depths(&first, expected_depth_counts, &request);
         assert_replayable(&data, &context, &request, &first);
+        assert_default_replayable(&data, &context, &request, &selector);
         assert_eq!(
             solution_fingerprint(&first),
             expected_fingerprint,
@@ -402,14 +406,19 @@ fn formal_depth_two_regression_cases_remain_replayable_and_stable() {
         );
         assert_eq!(
             first,
-            search(&data, &context, &request).unwrap(),
+            expand_selector(
+                &data,
+                &context,
+                &request,
+                &search(&data, &context, &request).unwrap(),
+            ),
             "request={request:?}"
         );
     }
 }
 
 #[test]
-fn formal_pressure_cases_report_the_current_safety_boundary() {
+fn formal_compressed_spaces_cover_previous_pressure_cases() {
     let data = dataset::game_data();
     let context = prepared_context(
         &data,
@@ -419,36 +428,97 @@ fn formal_pressure_cases_report_the_current_safety_boundary() {
         },
     );
     let cases = [
-        SearchRequest {
-            target: demon_ids::ALICE,
-            required_skills: Vec::new(),
-            max_fusion_depth: 2,
-        },
-        SearchRequest {
-            target: demon_ids::PIXIE,
-            required_skills: Vec::new(),
-            max_fusion_depth: 3,
-        },
-        SearchRequest {
-            target: demon_ids::SATAN,
-            required_skills: vec![
-                skill_ids::TRISAGION,
-                skill_ids::POISON_MASTER,
-                skill_ids::DARK_SWORD,
-            ],
-            max_fusion_depth: 3,
-        },
+        (
+            SearchRequest {
+                target: demon_ids::ALICE,
+                required_skills: Vec::new(),
+                max_fusion_depth: 2,
+            },
+            112_625_101_u64,
+        ),
+        (
+            SearchRequest {
+                target: demon_ids::PIXIE,
+                required_skills: Vec::new(),
+                max_fusion_depth: 3,
+            },
+            506_351_319_558_u64,
+        ),
+        (
+            SearchRequest {
+                target: demon_ids::SATAN,
+                required_skills: vec![
+                    skill_ids::TRISAGION,
+                    skill_ids::POISON_MASTER,
+                    skill_ids::DARK_SWORD,
+                ],
+                max_fusion_depth: 3,
+            },
+            1_737_507_851_875_u64,
+        ),
     ];
 
-    for request in cases {
-        assert_eq!(
-            search(&data, &context, &request),
-            Err(SearchError::SafetyLimitExceeded(
-                SearchSafetyLimit::RouteCombinations { maximum: 250_000 }
-            )),
-            "request={request:?}"
-        );
+    for (request, expected_count) in cases {
+        let selector = search(&data, &context, &request).unwrap();
+        assert_eq!(selector.route_count, BigUint::from(expected_count));
+        assert_default_replayable(&data, &context, &request, &selector);
     }
+}
+
+#[test]
+#[ignore = "representative depth-four spaces; run in release mode"]
+fn formal_depth_four_external_skill_spaces_complete() {
+    let started = Instant::now();
+    let data = dataset::game_data();
+    let context = prepared_context(
+        &data,
+        DlcConfiguration {
+            konohana_sakuya: true,
+            dagda: true,
+        },
+    );
+    let cases = [
+        (demon_ids::PIXIE, "444497551713314615180381772150"),
+        (demon_ids::HIGH_PIXIE, "231236219759498188397220"),
+        (demon_ids::SHIVA, "40695350565593979170813410968692"),
+        (
+            demon_ids::ALICE,
+            "1666007940650373178057316178875587628948682855716928",
+        ),
+        (
+            demon_ids::SATAN,
+            "124658498600493251948484585761611474422341723641781926782383854",
+        ),
+    ];
+
+    for (target, expected_count) in cases {
+        let target_meta = data.demons().get(target).unwrap();
+        let mut first_playthrough_skills = target_meta
+            .natural_skills
+            .iter()
+            .filter_map(|natural| {
+                matches!(natural.acquisition, SkillAcquisition::Initial { .. })
+                    .then_some(natural.skill)
+            })
+            .filter(|skill| data.skills().get(*skill).is_some_and(is_supported))
+            .collect::<Vec<_>>();
+        first_playthrough_skills.push(skill_ids::AGI);
+        first_playthrough_skills.sort_unstable();
+        first_playthrough_skills.dedup();
+
+        for required_skills in [vec![skill_ids::AGI], first_playthrough_skills] {
+            let request = SearchRequest {
+                target,
+                required_skills,
+                max_fusion_depth: 4,
+            };
+            let selector = search(&data, &context, &request).unwrap();
+            assert_eq!(selector.route_count, decimal_count(expected_count));
+            assert_default_replayable(&data, &context, &request, &selector);
+        }
+    }
+
+    eprintln!("depth-four spaces completed in {:?}", started.elapsed());
 }
 
 #[test]
@@ -489,7 +559,7 @@ fn exhaustive_formal_depth_one_single_skill_matrix_matches_the_oracle() {
 
 #[test]
 #[ignore = "full depth-two target sweep; run in release mode"]
-fn exhaustive_formal_depth_two_empty_skill_sweep_matches_the_baseline() {
+fn exhaustive_formal_depth_two_empty_skill_spaces_complete() {
     let started = Instant::now();
     let data = dataset::game_data();
     let context = prepared_context(
@@ -499,10 +569,8 @@ fn exhaustive_formal_depth_two_empty_skill_sweep_matches_the_baseline() {
             dagda: true,
         },
     );
-    let mut successful_targets = 0usize;
-    let mut limited_targets = 0usize;
-    let mut route_count = 0usize;
-    let mut fingerprinter = Fingerprinter::new();
+    let mut completed_targets = 0usize;
+    let mut route_count = BigUint::default();
 
     for demon in data.demons().iter() {
         let request = SearchRequest {
@@ -510,43 +578,22 @@ fn exhaustive_formal_depth_two_empty_skill_sweep_matches_the_baseline() {
             required_skills: Vec::new(),
             max_fusion_depth: 2,
         };
-        fingerprinter.write_u32(demon.id.0);
-        match search(&data, &context, &request) {
-            Ok(solutions) => {
-                fingerprinter.write_byte(0);
-                fingerprinter.write_usize(solutions.len());
-                for solution in &solutions {
-                    fingerprinter.write_solution(solution);
-                }
-                assert_replayable(&data, &context, &request, &solutions);
-                successful_targets += 1;
-                route_count += solutions.len();
-            }
-            Err(SearchError::SafetyLimitExceeded(SearchSafetyLimit::RouteCombinations {
-                maximum: 250_000,
-            })) => {
-                fingerprinter.write_byte(1);
-                limited_targets += 1;
-            }
-            Err(error) => panic!("unexpected error for {request:?}: {error:?}"),
-        }
+        let selector = search(&data, &context, &request).unwrap();
+        assert_default_replayable(&data, &context, &request, &selector);
+        completed_targets += 1;
+        route_count += selector.route_count;
     }
 
     eprintln!(
-        "depth-two sweep: successful_targets={successful_targets}, limited_targets={limited_targets}, routes={route_count}, fingerprint={:?}, elapsed={:?}",
-        fingerprinter.fingerprint,
+        "depth-two spaces: completed_targets={completed_targets}, routes={route_count}, elapsed={:?}",
         started.elapsed()
     );
-    assert_eq!(successful_targets, 97);
-    assert_eq!(limited_targets, 178);
-    assert_eq!(route_count, 6_205_576);
-    assert_eq!(
-        fingerprinter.fingerprint,
-        Fingerprint {
-            first: 0x496f_652e_1a3d_c86d,
-            second: 0x69bb_33cc_cf49_4617,
-        }
-    );
+    assert_eq!(completed_targets, 275);
+    assert_eq!(route_count, BigUint::from(10_977_216_048_u64));
+}
+
+fn decimal_count(value: &str) -> BigUint {
+    BigUint::parse_bytes(value.as_bytes(), 10).unwrap()
 }
 
 fn prepared_context(data: &GameData, configuration: DlcConfiguration) -> PlayerContext {
@@ -596,13 +643,139 @@ fn assert_search_matches_oracle(
 ) -> Vec<SearchSolution> {
     assert!(request.max_fusion_depth <= 1);
     let expected = oracle_routes(data, context, request);
-    let actual = search(data, context, request).unwrap_or_else(|error| {
+    let selector = search(data, context, request).unwrap_or_else(|error| {
         panic!("search failed for {request:?}: {error:?}");
     });
+    let actual = expand_selector(data, context, request, &selector);
 
     assert_same_routes(&actual, &expected, request);
     assert_replayable(data, context, request, &actual);
+    assert_default_replayable(data, context, request, &selector);
+    match (selector.default_selection.as_ref(), expected.first()) {
+        (Some(selection), Some(expected)) => assert_eq!(
+            selection.materialize_route(data).unwrap().as_ref(),
+            expected,
+            "request={request:?}"
+        ),
+        (None, None) => {}
+        _ => panic!("default-route mismatch for {request:?}"),
+    }
     actual
+}
+
+fn assert_default_replayable(
+    data: &GameData,
+    context: &PlayerContext,
+    request: &SearchRequest,
+    selector: &RouteSelector,
+) {
+    let Some(selection) = &selector.default_selection else {
+        assert_eq!(selector.route_count, BigUint::default());
+        return;
+    };
+    let route = selection.materialize_route(data).unwrap();
+    assert_eq!(
+        replay(data, context, request, route.as_ref()),
+        Ok(selection.demon.clone()),
+        "request={request:?}"
+    );
+}
+
+fn expand_selector(
+    data: &GameData,
+    context: &PlayerContext,
+    request: &SearchRequest,
+    selector: &RouteSelector,
+) -> Vec<SearchSolution> {
+    selector
+        .routes
+        .iter()
+        .flat_map(|space| {
+            expand_space(data, space)
+                .into_iter()
+                .map(|route| SearchSolution {
+                    demon: replay(data, context, request, route.as_ref()).unwrap(),
+                    fusion_depth: space.fusion_depth,
+                    route,
+                })
+        })
+        .collect()
+}
+
+fn expand_space(data: &GameData, space: &Rc<RouteSpace>) -> Vec<Rc<Route>> {
+    let base_level = data.demons().get(space.demon).unwrap().base_level;
+    let mut result = Vec::new();
+    for choice in &space.choices {
+        match choice {
+            RouteChoice::Direct(direct) => result.push(Rc::new(add_upgrades(
+                base_level,
+                direct.target_level,
+                Route::Direct { demon: space.demon },
+            ))),
+            RouteChoice::Fusion(fusion) => {
+                let options = fusion
+                    .materials
+                    .iter()
+                    .map(|material| {
+                        material
+                            .routes
+                            .iter()
+                            .flat_map(|child| {
+                                expand_space(data, child)
+                                    .into_iter()
+                                    .map(move |route| (child.fusion_depth, route))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>();
+                if options.iter().any(Vec::is_empty) {
+                    continue;
+                }
+                combine_expanded(&options, 0, &mut Vec::new(), &mut |selected| {
+                    if selected.iter().map(|(depth, _)| *depth).max().unwrap() + 1
+                        != space.fusion_depth
+                    {
+                        return;
+                    }
+                    let materials = fusion
+                        .materials
+                        .iter()
+                        .zip(selected)
+                        .map(|(material, (_, route))| FusionSubroute {
+                            required_skills: material.required_skills.clone(),
+                            route: Rc::clone(route),
+                        })
+                        .collect();
+                    result.push(Rc::new(add_upgrades(
+                        base_level,
+                        fusion.target_level,
+                        Route::Fusion {
+                            recipe: fusion.recipe.as_ref().clone(),
+                            materials,
+                        },
+                    )));
+                });
+            }
+        }
+    }
+    result
+}
+
+fn combine_expanded<T: Clone>(
+    options: &[Vec<T>],
+    index: usize,
+    selected: &mut Vec<T>,
+    visit: &mut impl FnMut(&[T]),
+) {
+    if index == options.len() {
+        visit(selected);
+        return;
+    }
+    for option in &options[index] {
+        selected.push(option.clone());
+        combine_expanded(options, index + 1, selected, visit);
+        selected.pop();
+    }
 }
 
 fn oracle_routes(data: &GameData, context: &PlayerContext, request: &SearchRequest) -> Vec<Route> {
@@ -670,7 +843,7 @@ fn depth_one_routes(
                         let material_meta = data.demons().get(material).unwrap();
                         depth_zero_route(material_meta, &required).map(|route| FusionSubroute {
                             required_skills: required,
-                            route,
+                            route: Rc::new(route),
                         })
                     })
                     .collect::<Option<Vec<_>>>();
@@ -778,7 +951,7 @@ fn add_upgrades(base_level: u32, target_level: u32, mut route: Route) -> Route {
     for level in base_level + 1..=target_level {
         route = Route::Upgrade {
             level,
-            previous: Box::new(route),
+            previous: Rc::new(route),
         };
     }
     route
@@ -787,7 +960,7 @@ fn add_upgrades(base_level: u32, target_level: u32, mut route: Route) -> Route {
 fn assert_same_routes(actual: &[SearchSolution], expected: &[Route], request: &SearchRequest) {
     let difference = actual
         .iter()
-        .map(|solution| &solution.route)
+        .map(|solution| solution.route.as_ref())
         .zip(expected)
         .position(|(actual, expected)| actual != expected);
     if actual.len() != expected.len() || difference.is_some() {
