@@ -3,6 +3,13 @@
 version = 4
 
 [[package]]
+name = "android-core-runner"
+version = "0.1.0"
+dependencies = [
+ "smt5-fusion-core",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

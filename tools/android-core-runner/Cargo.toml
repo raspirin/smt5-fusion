@@ -1,0 +1,8 @@
+[package]
+name = "android-core-runner"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+smt5-fusion-core = { path = "../../crates/smt5-fusion-core" }

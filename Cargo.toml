@@ -1,3 +1,4 @@
 [workspace]
 resolver = "2"
-members = ["crates/smt5-fusion-core"]
+members = ["crates/smt5-fusion-core", "tools/android-core-runner"]
+default-members = ["crates/smt5-fusion-core"]
