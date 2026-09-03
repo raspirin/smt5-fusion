@@ -6,6 +6,7 @@ use crate::{
     model::{
         demon::{Demon, DemonId, NaturalSkill, SkillAcquisition},
         player_context::PlayerContext,
+        recipe::RecipeMeta,
         route::Route,
         route_space::{
             DirectChoice, FusionChoice, FusionMaterialOptions, RouteChoice, RouteSelector,
@@ -71,6 +72,7 @@ pub fn search(
         skills: &skills,
         memo: HashMap::new(),
         route_spaces_by_state: HashMap::new(),
+        recipes_by_demon: HashMap::new(),
         expanded_states: 0,
         skill_assignments: 0,
     }
@@ -129,13 +131,30 @@ impl SkillUniverse {
     }
 }
 
-const SKILL_MASK_COUNT: usize = 1 << SkillMask::BITS;
-type FeasibleSkillMasks = [bool; SKILL_MASK_COUNT];
+const SKILL_MASK_COUNT: usize = 1_usize << SkillMask::BITS;
+const FEASIBLE_SKILL_MASK_WORDS: usize = SKILL_MASK_COUNT / u64::BITS as usize;
 
-fn enumerate_skill_assignments(
+#[derive(Clone, Copy, Default)]
+struct FeasibleSkillMasks([u64; FEASIBLE_SKILL_MASK_WORDS]);
+
+impl FeasibleSkillMasks {
+    fn insert(&mut self, mask: SkillMask) {
+        let mask = usize::from(mask);
+        self.0[mask / u64::BITS as usize] |= 1_u64 << (mask % u64::BITS as usize);
+    }
+
+    fn contains(&self, mask: SkillMask) -> bool {
+        let mask = usize::from(mask);
+        self.0[mask / u64::BITS as usize] & (1_u64 << (mask % u64::BITS as usize)) != 0
+    }
+}
+
+fn for_each_skill_assignment<E>(
     skills_to_inherit: SkillMask,
     feasible_masks_by_material: &[FeasibleSkillMasks],
-) -> Vec<Vec<SkillMask>> {
+    material_skills: &mut [SkillMask],
+    mut visitor: impl FnMut(&[SkillMask]) -> Result<(), E>,
+) -> Result<(), E> {
     fn can_extend(
         assigned_skills: SkillMask,
         remaining_skills: SkillMask,
@@ -143,7 +162,7 @@ fn enumerate_skill_assignments(
     ) -> bool {
         let mut additional_skills = remaining_skills;
         loop {
-            if feasible_masks[usize::from(assigned_skills | additional_skills)] {
+            if feasible_masks.contains(assigned_skills | additional_skills) {
                 return true;
             }
             if additional_skills == 0 {
@@ -153,20 +172,17 @@ fn enumerate_skill_assignments(
         }
     }
 
-    fn visit(
-        skill_bits: &[SkillMask],
-        skill_index: usize,
+    fn visit<E>(
         remaining_skills: SkillMask,
         feasible_masks_by_material: &[FeasibleSkillMasks],
         material_skills: &mut [SkillMask],
-        assignments: &mut Vec<Vec<SkillMask>>,
-    ) {
-        if skill_index == skill_bits.len() {
-            assignments.push(material_skills.to_vec());
-            return;
+        visitor: &mut impl FnMut(&[SkillMask]) -> Result<(), E>,
+    ) -> Result<(), E> {
+        if remaining_skills == 0 {
+            return visitor(material_skills);
         }
 
-        let skill = skill_bits[skill_index];
+        let skill = 1_u8 << remaining_skills.trailing_zeros();
         let remaining_skills = remaining_skills & !skill;
         for material_index in 0..material_skills.len() {
             material_skills[material_index] |= skill;
@@ -177,35 +193,28 @@ fn enumerate_skill_assignments(
             );
             if can_complete {
                 visit(
-                    skill_bits,
-                    skill_index + 1,
                     remaining_skills,
                     feasible_masks_by_material,
                     material_skills,
-                    assignments,
-                );
+                    visitor,
+                )?;
             }
             material_skills[material_index] &= !skill;
         }
+        Ok(())
     }
 
-    if feasible_masks_by_material.is_empty() {
-        return Vec::new();
+    material_skills.fill(0);
+    if skills_to_inherit == 0 {
+        return visitor(material_skills);
     }
-    let skill_bits = (0..SkillMask::BITS)
-        .map(|index| 1_u8 << index)
-        .filter(|bit| skills_to_inherit & bit != 0)
-        .collect::<Vec<_>>();
-    let mut assignments = Vec::new();
+    debug_assert_eq!(feasible_masks_by_material.len(), material_skills.len());
     visit(
-        &skill_bits,
-        0,
         skills_to_inherit,
         feasible_masks_by_material,
-        &mut vec![0; feasible_masks_by_material.len()],
-        &mut assignments,
-    );
-    assignments
+        material_skills,
+        &mut visitor,
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -231,6 +240,7 @@ struct Solver<'a> {
     skills: &'a SkillUniverse,
     memo: HashMap<StateKey, MemoEntry>,
     route_spaces_by_state: HashMap<BoundedStateKey, Rc<[Rc<RouteSpace>]>>,
+    recipes_by_demon: HashMap<DemonId, Rc<[Rc<RecipeMeta>]>>,
     expanded_states: u32,
     skill_assignments: u32,
 }
@@ -326,8 +336,8 @@ impl Solver<'_> {
             return Ok(self.route_space(key, exact_fusion_depth, choices));
         }
         let base_level = demon_meta.base_level;
-        let natural_skills = demon_meta.natural_skills.clone();
-        let levels = self.meaningful_levels(base_level, &natural_skills, key.required_skills);
+        let levels =
+            self.meaningful_levels(base_level, &demon_meta.natural_skills, key.required_skills);
 
         if exact_fusion_depth == 0 {
             if let Some(target_level) = Self::direct_target_level(key.required_skills, &levels) {
@@ -336,71 +346,80 @@ impl Solver<'_> {
             return Ok(self.route_space(key, exact_fusion_depth, choices));
         }
 
-        let direct_recipes = self
-            .player_context
-            .get_direct_recipes(key.demon)
-            .unwrap_or_default()
-            .iter()
-            .cloned()
-            .map(Rc::new)
-            .collect::<Vec<_>>();
-        let inheritance_options = levels
-            .into_iter()
-            .filter_map(|(target_level, local_skills)| {
-                let skills_to_inherit = key.required_skills & !local_skills;
-                self.are_inheritable(skills_to_inherit)
-                    .then_some((target_level, skills_to_inherit))
-            })
-            .collect::<Vec<_>>();
-
-        for (target_level, skills_to_inherit) in inheritance_options {
-            for recipe in &direct_recipes {
-                let Some(feasible_masks_by_material) = self.feasible_material_skill_masks(
+        let direct_recipes = self.shared_direct_recipes(key.demon);
+        let mut feasible_masks_by_material = Vec::new();
+        let mut material_skills = Vec::new();
+        for (target_level, local_skills) in levels {
+            let skills_to_inherit = key.required_skills & !local_skills;
+            if !self.are_inheritable(skills_to_inherit) {
+                continue;
+            }
+            for recipe in direct_recipes.iter() {
+                if !self.feasible_material_skill_masks(
                     &recipe.materials,
                     skills_to_inherit,
                     exact_fusion_depth - 1,
-                )?
-                else {
+                    &mut feasible_masks_by_material,
+                )? {
                     continue;
-                };
-                for material_skills in
-                    enumerate_skill_assignments(skills_to_inherit, &feasible_masks_by_material)
-                {
-                    let mut materials = Vec::with_capacity(recipe.materials.len());
-                    let mut reaches_required_depth = false;
-                    for (&material, &required) in recipe.materials.iter().zip(&material_skills) {
-                        let child_state = StateKey {
-                            demon: material,
-                            required_skills: required,
-                        };
-                        let routes =
-                            self.route_spaces_through(child_state, exact_fusion_depth - 1)?;
-                        if routes.iter().all(|space| space.choices.is_empty()) {
-                            materials.clear();
-                            break;
-                        }
-                        reaches_required_depth |= routes
-                            .get((exact_fusion_depth - 1) as usize)
-                            .is_some_and(|space| !space.choices.is_empty());
-                        materials.push(FusionMaterialOptions {
-                            required_skills: self.skills.skill_ids(required),
-                            routes,
-                        });
-                    }
-                    if materials.is_empty() || !reaches_required_depth {
-                        continue;
-                    }
-                    self.record_skill_assignment()?;
-                    choices.push(RouteChoice::Fusion(FusionChoice {
-                        target_level,
-                        recipe: Rc::clone(recipe),
-                        materials,
-                    }));
                 }
+                material_skills.resize(recipe.materials.len(), 0);
+                for_each_skill_assignment(
+                    skills_to_inherit,
+                    &feasible_masks_by_material,
+                    &mut material_skills,
+                    |material_skills| {
+                        let mut materials = Vec::with_capacity(recipe.materials.len());
+                        let mut reaches_required_depth = false;
+                        for (&material, &required) in recipe.materials.iter().zip(material_skills) {
+                            let child_state = StateKey {
+                                demon: material,
+                                required_skills: required,
+                            };
+                            let routes =
+                                self.route_spaces_through(child_state, exact_fusion_depth - 1)?;
+                            debug_assert!(routes.iter().any(|space| !space.choices.is_empty()));
+                            reaches_required_depth |= routes
+                                .get((exact_fusion_depth - 1) as usize)
+                                .is_some_and(|space| !space.choices.is_empty());
+                            materials.push(FusionMaterialOptions {
+                                required_skills: self.skills.skill_ids(required),
+                                routes,
+                            });
+                        }
+                        if materials.is_empty() || !reaches_required_depth {
+                            return Ok(());
+                        }
+                        self.record_skill_assignment()?;
+                        choices.push(RouteChoice::Fusion(FusionChoice {
+                            target_level,
+                            recipe: Rc::clone(recipe),
+                            materials,
+                        }));
+                        Ok(())
+                    },
+                )?;
             }
         }
 
         Ok(self.route_space(key, exact_fusion_depth, choices))
+    }
+
+    fn shared_direct_recipes(&mut self, demon: DemonId) -> Rc<[Rc<RecipeMeta>]> {
+        if let Some(recipes) = self.recipes_by_demon.get(&demon) {
+            return Rc::clone(recipes);
+        }
+        let recipes = self
+            .player_context
+            .get_direct_recipes(demon)
+            .unwrap_or_default()
+            .iter()
+            .cloned()
+            .map(Rc::new)
+            .collect::<Vec<_>>()
+            .into();
+        self.recipes_by_demon.insert(demon, Rc::clone(&recipes));
+        recipes
     }
 
     fn route_space(
@@ -422,13 +441,18 @@ impl Solver<'_> {
         materials: &[DemonId],
         skills_to_inherit: SkillMask,
         maximum_child_depth: u32,
-    ) -> Result<Option<Vec<FeasibleSkillMasks>>, SearchSafetyLimit> {
+        feasible_masks_by_material: &mut Vec<FeasibleSkillMasks>,
+    ) -> Result<bool, SearchSafetyLimit> {
+        feasible_masks_by_material.clear();
+        if skills_to_inherit == 0 {
+            return Ok(true);
+        }
+
         let layer_count =
             usize::try_from(maximum_child_depth).expect("fusion depth must fit in usize") + 1;
-        let mut feasible_masks_by_material = Vec::with_capacity(materials.len());
         for &material in materials {
-            let mut feasible_masks = [false; SKILL_MASK_COUNT];
-            feasible_masks[0] = true;
+            let mut feasible_masks = FeasibleSkillMasks::default();
+            feasible_masks.insert(0);
             let mut skills = skills_to_inherit;
             while skills != 0 {
                 let state = StateKey {
@@ -436,14 +460,17 @@ impl Solver<'_> {
                     required_skills: skills,
                 };
                 self.ensure_through(state, maximum_child_depth)?;
-                feasible_masks[usize::from(skills)] = self
+                if self
                     .memo
                     .get(&state)
                     .expect("material state must be cached")
                     .spaces_by_depth
                     .iter()
                     .take(layer_count)
-                    .any(|space| !space.choices.is_empty());
+                    .any(|space| !space.choices.is_empty())
+                {
+                    feasible_masks.insert(skills);
+                }
                 skills = (skills - 1) & skills_to_inherit;
             }
             feasible_masks_by_material.push(feasible_masks);
@@ -454,12 +481,12 @@ impl Solver<'_> {
             if skills_to_inherit & skill != 0
                 && !feasible_masks_by_material
                     .iter()
-                    .any(|feasible_masks| feasible_masks[usize::from(skill)])
+                    .any(|feasible_masks| feasible_masks.contains(skill))
             {
-                return Ok(None);
+                return Ok(false);
             }
         }
-        Ok(Some(feasible_masks_by_material))
+        Ok(true)
     }
 
     fn direct_target_level(required_skills: SkillMask, levels: &[(u32, SkillMask)]) -> Option<u32> {
@@ -515,11 +542,13 @@ impl Solver<'_> {
     }
 
     fn are_inheritable(&self, skills: SkillMask) -> bool {
-        self.skills.skill_ids(skills).iter().all(|skill| {
-            self.game_data
-                .skills()
-                .get(*skill)
-                .is_some_and(|skill| skill.inheritable)
+        self.skills.skills.iter().enumerate().all(|(index, skill)| {
+            skills & (1_u8 << index) == 0
+                || self
+                    .game_data
+                    .skills()
+                    .get(*skill)
+                    .is_some_and(|skill| skill.inheritable)
         })
     }
 
@@ -551,18 +580,42 @@ mod tests {
 
     #[test]
     fn skill_assignments_keep_only_extendable_material_choices() {
-        let mut first_material = [false; SKILL_MASK_COUNT];
-        first_material[0] = true;
-        first_material[1] = true;
-        first_material[3] = true;
-        let mut second_material = [false; SKILL_MASK_COUNT];
-        second_material[0] = true;
-        second_material[2] = true;
+        let mut first_material = FeasibleSkillMasks::default();
+        first_material.insert(0);
+        first_material.insert(1);
+        first_material.insert(3);
+        let mut second_material = FeasibleSkillMasks::default();
+        second_material.insert(0);
+        second_material.insert(2);
+        let mut material_skills = [0; 2];
+        let mut assignments = Vec::new();
 
-        assert_eq!(
-            enumerate_skill_assignments(3, &[first_material, second_material]),
-            vec![vec![3, 0], vec![1, 2]]
-        );
+        for_each_skill_assignment(
+            3,
+            &[first_material, second_material],
+            &mut material_skills,
+            |assignment| {
+                assignments.push(assignment.to_vec());
+                Ok::<_, ()>(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(assignments, vec![vec![3, 0], vec![1, 2]]);
+    }
+
+    #[test]
+    fn empty_skill_assignment_is_visited_once() {
+        let mut material_skills = [SkillMask::MAX; 3];
+        let mut assignments = Vec::new();
+
+        for_each_skill_assignment(0, &[], &mut material_skills, |assignment| {
+            assignments.push(assignment.to_vec());
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+
+        assert_eq!(assignments, vec![vec![0, 0, 0]]);
     }
 
     #[test]
@@ -595,6 +648,14 @@ mod tests {
             choices[index + 1..]
                 .iter()
                 .any(|right| Rc::ptr_eq(&left.recipe, &right.recipe))
+        }));
+        assert!(selector.routes[1].choices.iter().any(|left| {
+            let RouteChoice::Fusion(left) = left else {
+                return false;
+            };
+            choices
+                .iter()
+                .any(|right| left.recipe == right.recipe && Rc::ptr_eq(&left.recipe, &right.recipe))
         }));
         assert!(choices.iter().enumerate().any(|(index, left)| {
             choices[index + 1..].iter().any(|right| {
