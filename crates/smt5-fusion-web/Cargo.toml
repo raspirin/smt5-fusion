@@ -1,0 +1,53 @@
+[package]
+name = "smt5-fusion-web"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+default = []
+ui = ["dep:leptos", "dep:send_wrapper", "dep:serde_json"]
+worker = ["dep:js-sys"]
+
+[dependencies]
+console_error_panic_hook = "0.1.7"
+js-sys = { version = "0.3.81", optional = true }
+leptos = { version = "0.8.15", features = ["csr"], optional = true }
+send_wrapper = { version = "0.6.0", optional = true }
+serde = { version = "1.0.228", features = ["derive"] }
+serde-wasm-bindgen = "0.6.5"
+serde_json = { version = "1.0.145", optional = true }
+smt5-fusion-core = { path = "../smt5-fusion-core", features = ["serde"] }
+wasm-bindgen = "0.2.104"
+
+[dependencies.web-sys]
+version = "0.3.81"
+features = [
+    "DedicatedWorkerGlobalScope",
+    "DomRect",
+    "Element",
+    "ErrorEvent",
+    "Event",
+    "FocusEvent",
+    "HtmlInputElement",
+    "HtmlSelectElement",
+    "KeyboardEvent",
+    "MessageEvent",
+    "MouseEvent",
+    "Node",
+    "Storage",
+    "Window",
+    "Worker",
+    "WorkerOptions",
+    "WorkerType",
+]
+
+[[bin]]
+name = "smt5-fusion-web"
+path = "src/bin/app.rs"
+required-features = ["ui"]
+
+[[bin]]
+name = "smt5-fusion-worker"
+path = "src/bin/worker.rs"
+required-features = ["worker"]
