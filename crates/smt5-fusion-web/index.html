@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta name="theme-color" content="#332f2b" />
+        <meta
+            name="description"
+            content="真·女神转生 V Vengeance 浏览器端反向合体路线计算器"
+        />
+        <title>SMT5V 合体计算器</title>
+        <base data-trunk-public-url />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@100..900&amp;family=Noto+Serif+SC:wght@200..900&amp;display=swap"
+        />
+        <link data-trunk rel="css" href="style.css" />
+        <link
+            data-trunk
+            rel="rust"
+            href="Cargo.toml"
+            data-bin="smt5-fusion-web"
+            data-type="main"
+            data-cargo-features="ui"
+            data-bindgen-target="web"
+            data-wasm-opt="z"
+        />
+        <link
+            data-trunk
+            rel="rust"
+            href="Cargo.toml"
+            data-bin="smt5-fusion-worker"
+            data-type="worker"
+            data-cargo-features="worker"
+            data-bindgen-target="web"
+            data-loader-shim
+            data-wasm-opt="2"
+        />
+    </head>
+    <body>
+        <noscript>此计算器需要启用 JavaScript 和 WebAssembly。</noscript>
+    </body>
+</html>
