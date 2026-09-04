@@ -334,6 +334,10 @@ impl RouteSelection {
             .materialize(game_data, self.choice_index, &self.materials)
     }
 
+    pub fn apply_update(&mut self, update: RouteUpdate) -> Result<(), SelectionError> {
+        Self::replace_at(self, &update.replace_from.0, update.new_subtree)
+    }
+
     pub fn select_choice(
         &self,
         game_data: &GameData,
@@ -403,6 +407,27 @@ impl RouteSelection {
         })
     }
 
+    fn replace_at(
+        selected: &mut Self,
+        path: &[usize],
+        replacement: RouteSelection,
+    ) -> Result<(), SelectionError> {
+        let Some((&material_index, remaining)) = path.split_first() else {
+            if selected.space.demon != replacement.space.demon
+                || selected.space.required_skills != replacement.space.required_skills
+            {
+                return Err(SelectionError::NoRoute);
+            }
+            *selected = replacement;
+            return Ok(());
+        };
+        let material = selected
+            .materials
+            .get_mut(material_index)
+            .ok_or_else(|| SelectionError::InvalidRoutePath(RoutePath(path.to_vec())))?;
+        Self::replace_at(material, remaining, replacement)
+    }
+
     fn at(&self, path: &RoutePath) -> Option<&Self> {
         let mut current = self;
         for &material_index in &path.0 {
@@ -433,5 +458,55 @@ impl RouteSelection {
             return Err(SelectionError::InvalidMaterialIndex(material_index));
         }
         Ok((selected, fusion))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn selection(demon: u32, required_skills: Vec<SkillId>) -> RouteSelection {
+        RouteSelection {
+            space: RouteSpace::new(DemonId(demon), required_skills, 0, Vec::new()),
+            choice_index: 0,
+            demon: Demon {
+                meta: DemonId(demon),
+                level: demon,
+                skills: Vec::new(),
+            },
+            materials: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn applies_compatible_subtree_updates_and_rejects_invalid_ones() {
+        let mut root = selection(1, Vec::new());
+        root.materials.push(selection(2, vec![SkillId(3)]));
+        let mut replacement = selection(2, vec![SkillId(3)]);
+        replacement.demon.level = 99;
+
+        root.apply_update(RouteUpdate {
+            replace_from: RoutePath(vec![0]),
+            new_subtree: replacement,
+        })
+        .unwrap();
+        assert_eq!(root.materials[0].demon.level, 99);
+
+        let error = root
+            .apply_update(RouteUpdate {
+                replace_from: RoutePath(vec![0]),
+                new_subtree: selection(4, vec![SkillId(3)]),
+            })
+            .unwrap_err();
+        assert_eq!(error, SelectionError::NoRoute);
+        assert_eq!(root.materials[0].demon.level, 99);
+
+        let error = root
+            .apply_update(RouteUpdate {
+                replace_from: RoutePath(vec![1]),
+                new_subtree: selection(2, vec![SkillId(3)]),
+            })
+            .unwrap_err();
+        assert_eq!(error, SelectionError::InvalidRoutePath(RoutePath(vec![1])));
     }
 }
