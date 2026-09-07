@@ -3,14 +3,17 @@ use std::collections::BTreeSet;
 use leptos::prelude::*;
 
 use crate::{
-    i18n::{Locale, demon_name, skill_category_slug, skill_name},
+    i18n::{Locale, skill_category_slug},
     protocol::{
         CatalogDto, DemonCatalogDto, DemonContent, DemonId, DlcSettingsDto, OptionAcquisitionDto,
         RouteTreeNodeDto, SkillCatalogDto, SkillCategory, SkillId, VisibleOptionDto,
     },
 };
 
-use super::state::AppState;
+use super::{
+    search::{SearchQuery, SearchScore, demon_search_score, skill_search_score},
+    state::AppState,
+};
 
 pub(super) fn target_active_descendant(state: AppState) -> String {
     if !state.target_picker_open.get() {
@@ -35,7 +38,7 @@ pub(super) fn filtered_demons(state: AppState) -> Vec<DemonCatalogDto> {
     let Some(catalog) = state.catalog.get() else {
         return Vec::new();
     };
-    let query = state.target_query.get().trim().to_lowercase();
+    let query = SearchQuery::new(&state.target_query.get());
     let dlc = DlcSettingsDto {
         konohana_sakuya: state.konohana_sakuya_dlc.get(),
         dagda: state.dagda_dlc.get(),
@@ -46,15 +49,24 @@ pub(super) fn filtered_demons(state: AppState) -> Vec<DemonCatalogDto> {
         .demons
         .iter()
         .filter(|demon| demon_available(demon, dlc))
-        .filter(|demon| {
-            query.is_empty()
-                || selected == Some(demon.id)
-                || demon_name(locale, demon.id).to_lowercase().contains(&query)
+        .filter_map(|demon| {
+            let score = if query.is_empty() {
+                None
+            } else {
+                Some(demon_search_score(demon.id, &query, locale)?)
+            };
+            Some((demon.clone(), score))
         })
-        .cloned()
         .collect::<Vec<_>>();
-    demons.sort_unstable_by_key(|demon| (selected != Some(demon.id), demon.base_level, demon.id));
-    demons
+    demons.sort_unstable_by_key(|(demon, score)| {
+        (
+            selected != Some(demon.id),
+            *score,
+            demon.base_level,
+            demon.id,
+        )
+    });
+    demons.into_iter().map(|(demon, _)| demon).collect()
 }
 
 pub(super) fn filtered_skills(state: AppState) -> Vec<SkillCatalogDto> {
@@ -65,20 +77,26 @@ pub(super) fn filtered_skills(state: AppState) -> Vec<SkillCatalogDto> {
         return Vec::new();
     };
     let selected = state.required_skills.get();
-    let query = state.skill_query.get().trim().to_lowercase();
+    let query = SearchQuery::new(&state.skill_query.get());
     let category = state.skill_category.get();
     let locale = state.i18n.locale();
-    catalog
+    let mut skills = catalog
         .skills
         .iter()
         .filter(|skill| skill_eligible_for_target(target, skill))
         .filter(|skill| !selected.contains(&skill.id))
         .filter(|skill| category.is_none_or(|category| skill.category == category))
-        .filter(|skill| {
-            query.is_empty() || skill_name(locale, skill.id).to_lowercase().contains(&query)
+        .filter_map(|skill| {
+            let score = if query.is_empty() {
+                None
+            } else {
+                Some(skill_search_score(skill.id, &query, locale)?)
+            };
+            Some((skill.clone(), score))
         })
-        .cloned()
-        .collect()
+        .collect::<Vec<_>>();
+    skills.sort_unstable_by_key(|(skill, score)| (*score, skill.id));
+    skills.into_iter().map(|(skill, _)| skill).collect()
 }
 
 pub(super) fn source_active_descendant(state: AppState) -> String {
@@ -92,13 +110,22 @@ pub(super) fn filtered_options(state: AppState) -> Vec<VisibleOptionDto> {
     let Some(options) = state.options.get() else {
         return Vec::new();
     };
-    let query = state.option_query.get().trim().to_lowercase();
+    let query = SearchQuery::new(&state.option_query.get());
+    if query.is_empty() {
+        return options.options.clone();
+    }
     let locale = state.i18n.locale();
-    options
+    let mut matches = options
         .options
         .iter()
-        .filter(|option| option_matches(option, &query, locale))
-        .cloned()
+        .filter_map(|option| {
+            option_search_score(option, &query, locale).map(|score| (option, score))
+        })
+        .collect::<Vec<_>>();
+    matches.sort_by_key(|(_, score)| *score);
+    matches
+        .into_iter()
+        .map(|(option, _)| option.clone())
         .collect()
 }
 
@@ -106,17 +133,23 @@ pub(super) fn skill_eligible_for_target(target: &DemonCatalogDto, skill: &SkillC
     skill.supported && (skill.inheritable || target.natural_skills.contains(&skill.id))
 }
 
+#[cfg(test)]
 pub(super) fn option_matches(option: &VisibleOptionDto, query: &str, locale: Locale) -> bool {
+    let query = SearchQuery::new(query);
+    query.is_empty() || option_search_score(option, &query, locale).is_some()
+}
+
+fn option_search_score(
+    option: &VisibleOptionDto,
+    query: &SearchQuery,
+    locale: Locale,
+) -> Option<SearchScore> {
     match &option.acquisition {
-        OptionAcquisitionDto::Direct { .. } => query.is_empty(),
-        OptionAcquisitionDto::Fusion { materials, .. } => {
-            query.is_empty()
-                || materials.iter().any(|material| {
-                    demon_name(locale, material.demon)
-                        .to_lowercase()
-                        .contains(query)
-                })
-        }
+        OptionAcquisitionDto::Direct { .. } => None,
+        OptionAcquisitionDto::Fusion { materials, .. } => materials
+            .iter()
+            .filter_map(|material| demon_search_score(material.demon, query, locale))
+            .min(),
     }
 }
 

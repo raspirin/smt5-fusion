@@ -13,6 +13,7 @@ ui = [
     "dep:send_wrapper",
     "dep:serde_json",
     "dep:unic-langid",
+    "dep:unicode-normalization",
 ]
 worker = ["dep:js-sys"]
 
@@ -27,6 +28,7 @@ serde-wasm-bindgen = "0.6.5"
 serde_json = { version = "1.0.145", optional = true }
 smt5-fusion-core = { path = "../smt5-fusion-core", features = ["serde"] }
 unic-langid = { version = "0.9.6", optional = true }
+unicode-normalization = { version = "0.1.24", optional = true }
 wasm-bindgen = "0.2.104"
 
 [dependencies.web-sys]

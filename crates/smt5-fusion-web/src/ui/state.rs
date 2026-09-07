@@ -20,6 +20,7 @@ use crate::{
 };
 
 use super::{
+    search::prepare_search_indexes,
     selectors::{default_collapsed, demon, demon_available, skill, skill_eligible_for_target},
     worker_client::WorkerClient,
 };
@@ -98,6 +99,7 @@ impl AppState {
     pub(super) fn handle_response(self, response: WorkerResponse) {
         match response {
             WorkerResponse::Ready { catalog } => {
+                prepare_search_indexes();
                 self.sanitize_form(&catalog);
                 self.target_query.set(
                     self.target

@@ -6,14 +6,18 @@ use crate::{
     i18n::{I18n, Locale},
     protocol::{
         AcquisitionDto, DemonId, DlcSettingsDto, OptionAcquisitionDto, RouteTreeNodeDto,
-        SearchInputDto, SearchResultDto, VisibleOptionDto, WorkerFailureCode, WorkerFailureDto,
+        SearchInputDto, SearchResultDto, SkillId, VisibleOptionDto, WorkerFailureCode,
+        WorkerFailureDto,
     },
 };
 
 use super::{
-    selectors::{all_collapsible_paths, grouped_digits, option_matches},
+    selectors::{
+        all_collapsible_paths, filtered_demons, filtered_skills, grouped_digits, option_matches,
+    },
     state::{AppError, AppState, Controller, PersistedForm},
 };
+use crate::service::WorkerService;
 
 #[test]
 fn big_counts_are_grouped_without_losing_precision() {
@@ -54,8 +58,37 @@ fn source_search_matches_only_demons_present_in_an_option() {
     assert!(option_matches(&direct, "", Locale::ZhCn));
     assert!(!option_matches(&direct, "巴隆", Locale::ZhCn));
     assert!(option_matches(&fusion, "巴隆", Locale::ZhCn));
+    assert!(option_matches(&fusion, "Barong", Locale::ZhCn));
+    assert!(option_matches(&fusion, "バロン", Locale::ZhCn));
     assert!(!option_matches(&fusion, "湿婆", Locale::ZhCn));
     assert!(option_matches(&fusion, "barong", Locale::EnUs));
+}
+
+#[test]
+fn main_pickers_search_names_across_locales() {
+    Owner::new().with(|| {
+        let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
+        state.handle_response(WorkerService::new().ready());
+
+        for query in ["Shiva", "シヴァ", "湿婆", "濕婆", "ｼｳﾞｧ"] {
+            state.target_query.set(query.to_owned());
+            assert_eq!(
+                filtered_demons(state).first().map(|demon| demon.id),
+                Some(DemonId(193))
+            );
+        }
+
+        state.target.set(Some(DemonId(193)));
+        state.required_skills.set(Vec::new());
+        for query in ["Riberama", "リベラマ", "利悖拉玛", "利悖拉瑪", "ﾘﾍﾞﾗﾏ"]
+        {
+            state.skill_query.set(query.to_owned());
+            assert_eq!(
+                filtered_skills(state).first().map(|skill| skill.id),
+                Some(SkillId(745))
+            );
+        }
+    });
 }
 
 #[test]

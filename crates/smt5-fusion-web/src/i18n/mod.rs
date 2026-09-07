@@ -713,6 +713,26 @@ pub fn skill_name(locale: Locale, id: SkillId) -> String {
     )
 }
 
+pub(crate) fn demon_name_aliases(id: DemonId) -> Option<[(Locale, &'static str); 4]> {
+    let index = id.0 as usize;
+    Some([
+        (Locale::EnUs, *names::en_us::DEMON_NAMES.get(index)?),
+        (Locale::JaJp, *names::ja_jp::DEMON_NAMES.get(index)?),
+        (Locale::ZhCn, *names::zh_cn::DEMON_NAMES.get(index)?),
+        (Locale::ZhTw, *names::zh_tw::DEMON_NAMES.get(index)?),
+    ])
+}
+
+pub(crate) fn skill_name_aliases(id: SkillId) -> Option<[(Locale, &'static str); 4]> {
+    let index = id.0 as usize;
+    Some([
+        (Locale::EnUs, *names::en_us::SKILL_NAMES.get(index)?),
+        (Locale::JaJp, *names::ja_jp::SKILL_NAMES.get(index)?),
+        (Locale::ZhCn, *names::zh_cn::SKILL_NAMES.get(index)?),
+        (Locale::ZhTw, *names::zh_tw::SKILL_NAMES.get(index)?),
+    ])
+}
+
 pub const fn skill_category_slug(category: SkillCategory) -> &'static str {
     match category {
         SkillCategory::Physical => "physical",
