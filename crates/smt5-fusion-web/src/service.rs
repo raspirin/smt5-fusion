@@ -174,7 +174,7 @@ impl WorkerService {
             actual_fusion_depth: current.as_ref().map_or(0, actual_depth),
             tree: current
                 .as_ref()
-                .map(|selection| self.tree(selection, Vec::new())),
+                .map(|selection| self.tree(&selector, selection, selection, Vec::new())),
         };
         self.session = Some(SearchSession {
             id: session_id,
@@ -349,12 +349,18 @@ impl WorkerService {
                 session_id: session.id,
                 selection_revision: session.revision,
                 actual_fusion_depth: actual_depth(current),
-                tree: self.tree(current, Vec::new()),
+                tree: self.tree(&session.selector, current, current, Vec::new()),
             },
         }
     }
 
-    fn tree(&self, selection: &RouteSelection, path: Vec<u8>) -> RouteTreeNodeDto {
+    fn tree(
+        &self,
+        selector: &RouteSelector,
+        root: &RouteSelection,
+        selection: &RouteSelection,
+        path: Vec<u8>,
+    ) -> RouteTreeNodeDto {
         let meta = self
             .game_data
             .demons()
@@ -393,6 +399,10 @@ impl WorkerService {
                 SkillAcquisition::Initial { .. } | SkillAcquisition::Level { .. } => None,
             })
             .collect();
+        let can_change_recipe = has_multiple_visible_choices(
+            spaces_for_path(selector, root, &route_path(&path))
+                .expect("materialized route path must have route spaces"),
+        );
         let children = selection
             .materials
             .iter()
@@ -400,7 +410,7 @@ impl WorkerService {
             .map(|(index, child)| {
                 let mut child_path = path.clone();
                 child_path.push(u8::try_from(index).expect("material index must fit in u8"));
-                self.tree(child, child_path)
+                self.tree(selector, root, child, child_path)
             })
             .collect();
         RouteTreeNodeDto {
@@ -411,6 +421,7 @@ impl WorkerService {
             required_skills: selection.space.required_skills.clone(),
             upgrade_skills,
             acquisition,
+            can_change_recipe,
             children,
         }
     }
@@ -450,13 +461,13 @@ impl WorkerService {
     }
 }
 
-fn spaces_for_path(
-    selector: &RouteSelector,
-    current: &RouteSelection,
+fn spaces_for_path<'a>(
+    selector: &'a RouteSelector,
+    current: &'a RouteSelection,
     path: &RoutePath,
-) -> Result<Vec<Rc<RouteSpace>>, SelectionError> {
+) -> Result<&'a [Rc<RouteSpace>], SelectionError> {
     let Some((&material_index, parent_indices)) = path.0.split_last() else {
-        return Ok(selector.routes.clone());
+        return Ok(&selector.routes);
     };
     let parent_path = RoutePath(parent_indices.to_vec());
     let parent = selection_at(current, &parent_path)
@@ -473,7 +484,7 @@ fn spaces_for_path(
         .materials
         .get(material_index)
         .ok_or(SelectionError::InvalidMaterialIndex(material_index))?;
-    Ok(material.routes.iter().cloned().collect())
+    Ok(&material.routes)
 }
 
 fn selection_at<'a>(selection: &'a RouteSelection, path: &RoutePath) -> Option<&'a RouteSelection> {
@@ -484,7 +495,7 @@ fn selection_at<'a>(selection: &'a RouteSelection, path: &RoutePath) -> Option<&
     Some(current)
 }
 
-fn visible_choices(spaces: Vec<Rc<RouteSpace>>) -> Vec<VisibleChoice> {
+fn visible_choices(spaces: &[Rc<RouteSpace>]) -> Vec<VisibleChoice> {
     let mut seen = HashSet::new();
     let mut visible = Vec::new();
     for space in spaces {
@@ -493,13 +504,28 @@ fn visible_choices(spaces: Vec<Rc<RouteSpace>>) -> Vec<VisibleChoice> {
             if seen.insert(key.clone()) {
                 visible.push(VisibleChoice {
                     key,
-                    space: Rc::clone(&space),
+                    space: Rc::clone(space),
                     choice_index,
                 });
             }
         }
     }
     visible
+}
+
+fn has_multiple_visible_choices(spaces: &[Rc<RouteSpace>]) -> bool {
+    let mut first = None;
+    for space in spaces {
+        for choice in &space.choices {
+            let key = choice_key(space.fusion_depth, choice);
+            match &first {
+                Some(first) if first != &key => return true,
+                Some(_) => {}
+                None => first = Some(key),
+            }
+        }
+    }
+    false
 }
 
 fn selected_key(selection: &RouteSelection) -> Option<VisibleChoiceKey> {
@@ -693,6 +719,7 @@ mod tests {
         let tree = result.tree.expect("Pixie must have direct route");
         assert_eq!(tree.demon, demon_ids::PIXIE);
         assert!(matches!(tree.acquisition, AcquisitionDto::Direct { .. }));
+        assert!(!tree.can_change_recipe);
     }
 
     #[test]
@@ -847,6 +874,12 @@ mod tests {
         let WorkerResponse::SearchCompleted { result, .. } = response else {
             panic!("expected search result");
         };
+        assert!(
+            result
+                .tree
+                .as_ref()
+                .is_some_and(|tree| tree.can_change_recipe)
+        );
         let options_response = service.handle(WorkerRequest::GetNodeOptions {
             request_id: 2,
             session_id: result.session_id,

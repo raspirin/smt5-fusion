@@ -72,6 +72,7 @@ fn collapse_all_collects_every_node_with_materials() {
                 summon_level: 1,
                 target_level: 1,
             },
+            can_change_recipe: false,
             children,
         }
     }
@@ -88,6 +89,22 @@ fn collapse_all_collects_every_node_with_materials() {
         all_collapsible_paths(&tree),
         BTreeSet::from([Vec::new(), vec![0]])
     );
+}
+
+#[test]
+fn activating_the_current_recipe_closes_its_picker() {
+    Owner::new().with(|| {
+        let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
+        state.panel_path.set(Some(vec![0]));
+        state.options_loading.set(true);
+        state.active_options.set(Some(7));
+
+        Controller::new(state).select_option(0, true);
+
+        assert!(state.panel_path.get_untracked().is_none());
+        assert!(!state.options_loading.get_untracked());
+        assert!(state.active_options.get_untracked().is_none());
+    });
 }
 
 #[test]

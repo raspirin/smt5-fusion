@@ -73,6 +73,7 @@ pub struct RouteTreeNodeDto {
     pub required_skills: Vec<SkillId>,
     pub upgrade_skills: Vec<UpgradeSkillDto>,
     pub acquisition: AcquisitionDto,
+    pub can_change_recipe: bool,
     pub children: Vec<RouteTreeNodeDto>,
 }
 

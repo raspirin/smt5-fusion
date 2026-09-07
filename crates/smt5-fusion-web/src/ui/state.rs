@@ -397,7 +397,14 @@ impl Controller {
         }
     }
 
-    pub(super) fn select_option(&self, option_id: u32) {
+    pub(super) fn select_option(&self, option_id: u32, selected: bool) {
+        if self.state.selection_busy.get_untracked() {
+            return;
+        }
+        if selected {
+            self.state.close_options();
+            return;
+        }
         if !self.state.worker_ready.get_untracked() {
             return;
         }

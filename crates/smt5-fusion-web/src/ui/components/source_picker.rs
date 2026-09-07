@@ -94,7 +94,7 @@ pub(super) fn NodeOptionsPopover(
                                 state.option_active_index.get_untracked().min(count.saturating_sub(1)),
                             ) {
                                 event.prevent_default();
-                                keyboard_controller.select_option(option.option_id);
+                                keyboard_controller.select_option(option.option_id, option.selected);
                             }
                         }
                         _ => {}
@@ -204,9 +204,9 @@ fn OptionCard(option: VisibleOptionDto, index: usize) -> impl IntoView {
             type="button"
             role="option"
             aria-selected=selected
-            disabled=move || selected || state.selection_busy.get()
+            disabled=move || state.selection_busy.get()
             on:mousemove=move |_| state.option_active_index.set(index)
-            on:click=move |_| select_controller.select_option(option_id)
+            on:click=move |_| select_controller.select_option(option_id, selected)
         >
             {content}
             <span class="option-action">{move || i18n.text(if selected {

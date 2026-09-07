@@ -38,6 +38,7 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
         required_skills,
         upgrade_skills,
         acquisition,
+        can_change_recipe,
         children,
     } = node;
     let aria_path = path.clone();
@@ -109,6 +110,7 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
                     upgrade_skills
                 />
                 {required_view}
+                {can_change_recipe.then(|| view! {
                     <div class="node-action-wrap">
                         <button
                             class="button button-secondary node-action"
@@ -137,6 +139,7 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
                             />
                         </Show>
                     </div>
+                })}
             </article>
             <RouteNodeChildren path nodes=children />
         </li>
@@ -224,7 +227,7 @@ fn AcquisitionStages(
                         <strong class="demon-name">{move || i18n.demon_name(demon)}</strong>
                     </div>
                     <div class="state-source">
-                        <MethodLabel kind=acquisition_kind upgraded=true />
+                        <MethodLabel kind=acquisition_kind upgraded=false />
                         <LevelFlow initial_level=base_level final_level=base_level />
                     </div>
                 </div>
