@@ -2,7 +2,10 @@ use leptos::prelude::*;
 
 use crate::i18n::{Locale, Message};
 
-use super::super::{events::focus_moved_outside, state::Controller};
+use super::super::{
+    events::{focus_current_target, focus_moved_outside, preserve_picker_focus},
+    state::Controller,
+};
 
 #[component]
 pub(crate) fn LanguageSelector() -> impl IntoView {
@@ -38,7 +41,8 @@ pub(crate) fn LanguageSelector() -> impl IntoView {
                         .get()
                         .then(|| format!("language-option-{}", active_index.get()))
                 }
-                on:click=move |_| {
+                on:click=move |event| {
+                    focus_current_target(&event);
                     if picker_open.get_untracked() {
                         picker_open.set(false);
                     } else {
@@ -116,6 +120,7 @@ pub(crate) fn LanguageSelector() -> impl IntoView {
                                 tabindex="-1"
                                 lang=locale.tag()
                                 aria-selected=move || state.i18n.locale() == locale
+                                on:mousedown=preserve_picker_focus
                                 on:mousemove=move |_| active_index.set(index)
                                 on:click=move |_| {
                                     controller.set_locale(locale);

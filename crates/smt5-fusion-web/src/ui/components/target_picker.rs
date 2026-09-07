@@ -4,7 +4,7 @@ use wasm_bindgen::JsCast;
 use crate::i18n::Message;
 
 use super::super::{
-    events::focus_moved_outside,
+    events::{focus_moved_outside, preserve_picker_focus},
     selectors::{filtered_demons, selected_target_index, target_active_descendant},
     state::Controller,
 };
@@ -49,6 +49,10 @@ pub(super) fn TargetPicker() -> impl IntoView {
                         {
                             input.select();
                         }
+                        state.target_picker_open.set(true);
+                        state.target_active_index.set(selected_target_index(state));
+                    }
+                    on:click=move |_| {
                         state.target_picker_open.set(true);
                         state.target_active_index.set(selected_target_index(state));
                     }
@@ -108,6 +112,7 @@ pub(super) fn TargetPicker() -> impl IntoView {
                                                 type="button"
                                                 role="option"
                                                 aria-selected=move || state.target.get() == Some(demon_id)
+                                                on:mousedown=preserve_picker_focus
                                                 on:mousemove=move |_| state.target_active_index.set(index)
                                                 on:click=move |_| select_controller.select_target(Some(demon_id))
                                             >

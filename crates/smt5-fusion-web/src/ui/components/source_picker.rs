@@ -7,7 +7,7 @@ use crate::{
 
 use super::{
     super::{
-        events::{active_element, focus_moved_outside, restore_focus},
+        events::{active_element, focus_moved_outside, preserve_picker_focus, restore_focus},
         selectors::{demon, filtered_options, source_active_descendant},
         state::Controller,
     },
@@ -61,6 +61,7 @@ pub(super) fn NodeOptionsPopover(
                     class="icon-button"
                     type="button"
                     aria-label=move || i18n.text(Message::Close)
+                    on:mousedown=preserve_picker_focus
                     on:click=move |_| {
                         let target = return_focus.get_value();
                         state.close_options();
@@ -218,6 +219,7 @@ fn OptionCard(option: VisibleOptionDto, index: usize) -> impl IntoView {
             role="option"
             aria-selected=selected
             disabled=move || !state.can_edit_route()
+            on:mousedown=preserve_picker_focus
             on:mousemove=move |_| state.option_active_index.set(index)
             on:click=move |_| select_controller.select_option(option_id, selected)
         >

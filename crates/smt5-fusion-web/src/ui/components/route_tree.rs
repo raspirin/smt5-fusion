@@ -8,6 +8,7 @@ use crate::{
 
 use super::{
     super::{
+        events::focus_current_target,
         selectors::{demon, skill},
         state::{AppState, Controller},
     },
@@ -117,6 +118,7 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
                             type="button"
                             disabled=move || !state.can_edit_route()
                             on:click=move |event| {
+                                focus_current_target(&event);
                                 place_options(
                                     &event,
                                     options_open_upward,

@@ -1,5 +1,19 @@
 use wasm_bindgen::JsCast;
 
+pub(super) fn preserve_picker_focus(event: web_sys::MouseEvent) {
+    if event.button() == 0 {
+        event.prevent_default();
+    }
+}
+
+pub(super) fn focus_current_target(event: &web_sys::MouseEvent) {
+    restore_focus(
+        event
+            .current_target()
+            .and_then(|target| target.dyn_into().ok()),
+    );
+}
+
 pub(super) fn focus_moved_outside(event: &web_sys::FocusEvent) -> bool {
     let Some(current) = event
         .current_target()
