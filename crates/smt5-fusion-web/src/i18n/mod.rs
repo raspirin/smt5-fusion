@@ -9,6 +9,7 @@ use crate::protocol::{DemonContent, DemonId, Race, SkillCategory, SkillId};
 const EN_US_SOURCE: &str = include_str!("../../locales/en-US.ftl");
 const JA_JP_SOURCE: &str = include_str!("../../locales/ja-JP.ftl");
 const ZH_CN_SOURCE: &str = include_str!("../../locales/zh-CN.ftl");
+const ZH_TW_SOURCE: &str = include_str!("../../locales/zh-TW.ftl");
 
 #[cfg(target_arch = "wasm32")]
 const LOCALE_STORAGE_KEY: &str = "smt5-fusion-web:locale:v1";
@@ -19,16 +20,18 @@ pub enum Locale {
     JaJp,
     #[default]
     ZhCn,
+    ZhTw,
 }
 
 impl Locale {
-    pub const ALL: [Self; 3] = [Self::ZhCn, Self::EnUs, Self::JaJp];
+    pub const ALL: [Self; 4] = [Self::ZhCn, Self::ZhTw, Self::EnUs, Self::JaJp];
 
     pub const fn tag(self) -> &'static str {
         match self {
             Self::EnUs => "en-US",
             Self::JaJp => "ja-JP",
             Self::ZhCn => "zh-CN",
+            Self::ZhTw => "zh-TW",
         }
     }
 
@@ -37,6 +40,7 @@ impl Locale {
             Self::EnUs => "English",
             Self::JaJp => "日本語",
             Self::ZhCn => "简体中文",
+            Self::ZhTw => "繁體中文",
         }
     }
 
@@ -45,6 +49,7 @@ impl Locale {
             "en-US" => Some(Self::EnUs),
             "ja-JP" => Some(Self::JaJp),
             "zh-CN" => Some(Self::ZhCn),
+            "zh-TW" => Some(Self::ZhTw),
             _ => None,
         }
     }
@@ -55,7 +60,19 @@ impl Locale {
         match language {
             "en" => Some(Self::EnUs),
             "ja" => Some(Self::JaJp),
-            "zh" => Some(Self::ZhCn),
+            "zh" => {
+                let has_hant = normalized.split('-').skip(1).any(|part| part == "hant");
+                let has_hans = normalized.split('-').skip(1).any(|part| part == "hans");
+                let traditional_region = normalized
+                    .split('-')
+                    .skip(1)
+                    .any(|part| matches!(part, "tw" | "hk" | "mo"));
+                Some(if has_hant || (!has_hans && traditional_region) {
+                    Self::ZhTw
+                } else {
+                    Self::ZhCn
+                })
+            }
             _ => None,
         }
     }
@@ -475,6 +492,7 @@ struct Bundles {
     en_us: FluentBundle<FluentResource>,
     ja_jp: FluentBundle<FluentResource>,
     zh_cn: FluentBundle<FluentResource>,
+    zh_tw: FluentBundle<FluentResource>,
 }
 
 impl Bundles {
@@ -483,6 +501,7 @@ impl Bundles {
             en_us: bundle(Locale::EnUs, EN_US_SOURCE),
             ja_jp: bundle(Locale::JaJp, JA_JP_SOURCE),
             zh_cn: bundle(Locale::ZhCn, ZH_CN_SOURCE),
+            zh_tw: bundle(Locale::ZhTw, ZH_TW_SOURCE),
         }
     }
 
@@ -491,6 +510,7 @@ impl Bundles {
             Locale::EnUs => &self.en_us,
             Locale::JaJp => &self.ja_jp,
             Locale::ZhCn => &self.zh_cn,
+            Locale::ZhTw => &self.zh_tw,
         }
     }
 }
@@ -672,6 +692,7 @@ pub fn demon_name(locale: Locale, id: DemonId) -> String {
         Locale::EnUs => &names::en_us::DEMON_NAMES,
         Locale::JaJp => &names::ja_jp::DEMON_NAMES,
         Locale::ZhCn => &names::zh_cn::DEMON_NAMES,
+        Locale::ZhTw => &names::zh_tw::DEMON_NAMES,
     };
     names.get(id.0 as usize).map_or_else(
         || format_message(locale, Message::UnknownDemon, None),
@@ -684,6 +705,7 @@ pub fn skill_name(locale: Locale, id: SkillId) -> String {
         Locale::EnUs => &names::en_us::SKILL_NAMES,
         Locale::JaJp => &names::ja_jp::SKILL_NAMES,
         Locale::ZhCn => &names::zh_cn::SKILL_NAMES,
+        Locale::ZhTw => &names::zh_tw::SKILL_NAMES,
     };
     names.get(id.0 as usize).map_or_else(
         || format_message(locale, Message::UnknownSkill, None),
@@ -837,7 +859,7 @@ mod tests {
             .into_iter()
             .map(Message::id)
             .collect::<BTreeSet<_>>();
-        for source in [EN_US_SOURCE, JA_JP_SOURCE, ZH_CN_SOURCE] {
+        for source in [EN_US_SOURCE, JA_JP_SOURCE, ZH_CN_SOURCE, ZH_TW_SOURCE] {
             assert_eq!(resource_message_ids(source), expected);
         }
     }
@@ -898,12 +920,19 @@ mod tests {
 
     #[test]
     fn language_tags_match_supported_locales() {
-        assert_eq!(Locale::ALL, [Locale::ZhCn, Locale::EnUs, Locale::JaJp]);
+        assert_eq!(
+            Locale::ALL,
+            [Locale::ZhCn, Locale::ZhTw, Locale::EnUs, Locale::JaJp]
+        );
         assert_eq!(Locale::match_language_tag("en-GB"), Some(Locale::EnUs));
         assert_eq!(Locale::match_language_tag("ja_JP"), Some(Locale::JaJp));
-        assert_eq!(Locale::match_language_tag("zh-Hant"), Some(Locale::ZhCn));
+        assert_eq!(Locale::match_language_tag("zh-Hans"), Some(Locale::ZhCn));
+        assert_eq!(Locale::match_language_tag("zh-Hans-TW"), Some(Locale::ZhCn));
+        assert_eq!(Locale::match_language_tag("zh-Hant"), Some(Locale::ZhTw));
+        assert_eq!(Locale::match_language_tag("zh_HK"), Some(Locale::ZhTw));
         assert_eq!(Locale::match_language_tag("fr-FR"), None);
         assert_eq!(Locale::from_tag("ja-JP"), Some(Locale::JaJp));
+        assert_eq!(Locale::from_tag("zh-TW"), Some(Locale::ZhTw));
         assert_eq!(Locale::from_tag("ja"), None);
     }
 
@@ -913,6 +942,7 @@ mod tests {
             (Locale::EnUs, "Element"),
             (Locale::JaJp, "精霊"),
             (Locale::ZhCn, "精灵"),
+            (Locale::ZhTw, "精靈"),
         ] {
             for race in [
                 Race::Element(Element::Erthys),
@@ -931,6 +961,7 @@ mod tests {
             &names::en_us::DEMON_NAMES,
             &names::ja_jp::DEMON_NAMES,
             &names::zh_cn::DEMON_NAMES,
+            &names::zh_tw::DEMON_NAMES,
         ] {
             assert_eq!(names.len(), 275);
             assert!(names.iter().all(|name| !name.is_empty()));
@@ -939,6 +970,7 @@ mod tests {
             &names::en_us::SKILL_NAMES,
             &names::ja_jp::SKILL_NAMES,
             &names::zh_cn::SKILL_NAMES,
+            &names::zh_tw::SKILL_NAMES,
         ] {
             assert_eq!(names.len(), 763);
             assert!(names.iter().all(|name| !name.is_empty()));
@@ -950,9 +982,15 @@ mod tests {
         assert_eq!(demon_name(Locale::EnUs, DemonId(193)), "Shiva");
         assert_eq!(demon_name(Locale::JaJp, DemonId(193)), "シヴァ");
         assert_eq!(demon_name(Locale::ZhCn, DemonId(193)), "湿婆");
+        assert_eq!(demon_name(Locale::ZhTw, DemonId(193)), "濕婆");
         assert_eq!(skill_name(Locale::EnUs, SkillId(745)), "Riberama");
         assert_eq!(skill_name(Locale::JaJp, SkillId(745)), "リベラマ");
         assert_eq!(skill_name(Locale::ZhCn, SkillId(745)), "利悖拉玛");
+        assert_eq!(skill_name(Locale::ZhTw, SkillId(745)), "利悖拉瑪");
+        assert_eq!(demon_name(Locale::ZhTw, DemonId(254)), "摩利支天");
+        assert_eq!(skill_name(Locale::ZhTw, SkillId(222)), "魔緣號角");
+        assert_eq!(skill_name(Locale::ZhTw, SkillId(631)), "破曉的威光");
+        assert_eq!(skill_name(Locale::ZhTw, SkillId(669)), "無相幻射");
     }
 
     fn resource_message_ids(source: &str) -> BTreeSet<&str> {
