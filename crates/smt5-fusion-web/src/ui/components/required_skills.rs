@@ -26,6 +26,7 @@ fn SkillSlot(index: usize) -> impl IntoView {
     let state = controller.state;
     let i18n = state.i18n;
     let remove_controller = controller.clone();
+    let open_controller = controller.clone();
     view! {
         {move || {
             let selected = state.required_skills.get();
@@ -54,6 +55,7 @@ fn SkillSlot(index: usize) -> impl IntoView {
                                 type="button"
                                 class="icon-button"
                                 aria-label=i18n.remove_skill(&localized_skill)
+                                disabled=move || !state.can_edit_skills()
                                 on:click={
                                     let controller = remove_controller.clone();
                                     move |_| controller.remove_skill(index)
@@ -68,8 +70,11 @@ fn SkillSlot(index: usize) -> impl IntoView {
                     <button
                         type="button"
                         class="skill-slot empty"
-                        disabled=move || state.target.get().is_none()
-                        on:click=move |_| state.skill_picker_open.set(true)
+                        disabled=move || !state.can_edit_skills()
+                        on:click={
+                            let controller = open_controller.clone();
+                            move |_| controller.open_skill_picker(index)
+                        }
                     >
                         <span class="slot-number">{format!("{:02}", index + 1)}</span>
                         <span>{i18n.text(Message::EmptySlot)}</span>

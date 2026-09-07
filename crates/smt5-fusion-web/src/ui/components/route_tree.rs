@@ -115,7 +115,7 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
                         <button
                             class="button button-secondary node-action"
                             type="button"
-                            disabled=move || !state.worker_ready.get() || state.selection_busy.get()
+                            disabled=move || !state.can_edit_route()
                             on:click=move |event| {
                                 place_options(
                                     &event,
@@ -248,11 +248,15 @@ fn CollapseButton(path: Vec<u8>) -> impl IntoView {
             class="icon-button collapse-button"
             aria-label=move || i18n.text(Message::ToggleMaterials)
             aria-expanded=move || !state.collapsed.get().contains(&path)
-            on:click=move |_| state.collapsed.update(|collapsed| {
-                if !collapsed.remove(&click_path) {
-                    collapsed.insert(click_path.clone());
-                }
-            })
+            disabled=move || state.selection_busy.get()
+            on:click=move |_| {
+                state.close_options();
+                state.collapsed.update(|collapsed| {
+                    if !collapsed.remove(&click_path) {
+                        collapsed.insert(click_path.clone());
+                    }
+                });
+            }
         >
             {move || if state.collapsed.get().contains(&label_path) { "＋" } else { "−" }}
         </button>

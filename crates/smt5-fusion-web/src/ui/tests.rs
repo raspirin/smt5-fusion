@@ -5,9 +5,9 @@ use leptos::prelude::*;
 use crate::{
     i18n::{I18n, Locale},
     protocol::{
-        AcquisitionDto, DemonId, DlcSettingsDto, OptionAcquisitionDto, RouteTreeNodeDto,
-        SearchInputDto, SearchResultDto, SkillId, VisibleOptionDto, WorkerFailureCode,
-        WorkerFailureDto,
+        AcquisitionDto, DemonId, DlcSettingsDto, NodeOptionsDto, OptionAcquisitionDto,
+        RouteTreeNodeDto, SearchInputDto, SearchResultDto, SkillId, VisibleOptionDto,
+        WorkerFailureCode, WorkerFailureDto, WorkerResponse,
     },
 };
 
@@ -18,6 +18,9 @@ use super::{
     state::{AppError, AppState, Controller, PersistedForm},
 };
 use crate::service::WorkerService;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod interactions;
 
 #[test]
 fn big_counts_are_grouped_without_losing_precision() {
@@ -128,14 +131,13 @@ fn collapse_all_collects_every_node_with_materials() {
 fn activating_the_current_recipe_closes_its_picker() {
     Owner::new().with(|| {
         let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
-        state.panel_path.set(Some(vec![0]));
-        state.options_loading.set(true);
-        state.active_options.set(Some(7));
+        state.begin_options_request(7, vec![0]);
+        state.reveal_options_indicator(7);
 
         Controller::new(state).select_option(0, true);
 
         assert!(state.panel_path.get_untracked().is_none());
-        assert!(!state.options_loading.get_untracked());
+        assert!(!state.options_indicator_visible.get_untracked());
         assert!(state.active_options.get_untracked().is_none());
     });
 }
@@ -162,6 +164,8 @@ fn clearing_the_form_also_clears_the_route() {
     Owner::new().with(|| {
         let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
         state.target.set(Some(DemonId(193)));
+        state.konohana_sakuya_dlc.set(true);
+        state.dagda_dlc.set(true);
         state.result.set(Some(Arc::new(SearchResultDto {
             session_id: 1,
             selection_revision: 0,
@@ -177,7 +181,12 @@ fn clearing_the_form_also_clears_the_route() {
         })));
         state.active_search.set(Some(7));
         state.searching.set(true);
-        state.dirty.set(true);
+        state.search_indicator_visible.set(true);
+        state.skill_picker_open.set(true);
+        state.skill_query.set("test".to_owned());
+        state
+            .skill_category
+            .set(Some(crate::protocol::SkillCategory::Physical));
 
         Controller::new(state).clear_form();
 
@@ -185,8 +194,180 @@ fn clearing_the_form_also_clears_the_route() {
         assert!(state.result.get_untracked().is_none());
         assert!(state.active_search.get_untracked().is_none());
         assert!(!state.searching.get_untracked());
-        assert!(!state.dirty.get_untracked());
+        assert!(!state.search_indicator_visible.get_untracked());
+        assert!(state.konohana_sakuya_dlc.get_untracked());
+        assert!(state.dagda_dlc.get_untracked());
+        assert!(!untrack(|| state.result_is_stale()));
+        assert!(!state.skill_picker_open.get_untracked());
+        assert!(state.skill_query.get_untracked().is_empty());
+        assert!(state.skill_category.get_untracked().is_none());
     });
+}
+
+#[test]
+fn delayed_search_indicator_requires_the_active_request() {
+    Owner::new().with(|| {
+        let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
+        state.active_search.set(Some(7));
+        state.searching.set(true);
+
+        state.reveal_search_indicator(6);
+        assert!(!state.search_indicator_visible.get_untracked());
+
+        state.reveal_search_indicator(7);
+        assert!(state.search_indicator_visible.get_untracked());
+
+        state.search_indicator_visible.set(false);
+        state.searching.set(false);
+        state.reveal_search_indicator(7);
+        assert!(!state.search_indicator_visible.get_untracked());
+    });
+}
+
+#[test]
+fn delayed_options_indicator_requires_an_open_active_request() {
+    Owner::new().with(|| {
+        let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
+        state.begin_options_request(7, vec![0]);
+        assert_eq!(state.panel_path.get_untracked(), Some(vec![0]));
+        assert!(!state.options_indicator_visible.get_untracked());
+
+        state.reveal_options_indicator(6);
+        assert!(!state.options_indicator_visible.get_untracked());
+        state.reveal_options_indicator(7);
+        assert!(state.options_indicator_visible.get_untracked());
+
+        state.close_options();
+        state.reveal_options_indicator(7);
+        assert!(!state.options_indicator_visible.get_untracked());
+        assert!(state.active_options.get_untracked().is_none());
+    });
+}
+
+#[test]
+fn switching_nodes_restarts_the_options_indicator_delay() {
+    Owner::new().with(|| {
+        let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
+        state.begin_options_request(7, vec![0]);
+        state.reveal_options_indicator(7);
+        assert!(state.options_indicator_visible.get_untracked());
+
+        state.begin_options_request(8, vec![1]);
+        state.reveal_options_indicator(7);
+        state.handle_response(WorkerResponse::NodeOptions {
+            request_id: 7,
+            options: NodeOptionsDto {
+                session_id: 1,
+                selection_revision: 0,
+                path: vec![0],
+                demon: DemonId(193),
+                options: Vec::new(),
+            },
+        });
+        assert_eq!(state.panel_path.get_untracked(), Some(vec![1]));
+        assert_eq!(state.active_options.get_untracked(), Some(8));
+        assert!(state.options.get_untracked().is_none());
+        assert!(!state.options_indicator_visible.get_untracked());
+
+        state.reveal_options_indicator(8);
+        assert!(state.options_indicator_visible.get_untracked());
+    });
+}
+
+#[test]
+fn completed_options_requests_hide_the_indicator_and_ignore_late_timers() {
+    for delay_elapsed in [false, true] {
+        Owner::new().with(|| {
+            let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
+            let result = Arc::new(SearchResultDto {
+                session_id: 1,
+                selection_revision: 0,
+                input: SearchInputDto {
+                    target: DemonId(193),
+                    required_skills: Vec::new(),
+                    max_fusion_depth: 2,
+                    dlc: DlcSettingsDto::default(),
+                },
+                route_count: "1".to_owned(),
+                actual_fusion_depth: 0,
+                tree: None,
+            });
+            state.result.set(Some(Arc::clone(&result)));
+            state.session_available.set(true);
+            state.begin_options_request(7, Vec::new());
+            if delay_elapsed {
+                state.reveal_options_indicator(7);
+            }
+            assert_eq!(
+                state.options_indicator_visible.get_untracked(),
+                delay_elapsed
+            );
+
+            let options = NodeOptionsDto {
+                session_id: 1,
+                selection_revision: 0,
+                path: Vec::new(),
+                demon: DemonId(193),
+                options: vec![VisibleOptionDto {
+                    option_id: 0,
+                    selected: true,
+                    acquisition: OptionAcquisitionDto::Direct {
+                        summon_level: 82,
+                        target_level: 82,
+                    },
+                }],
+            };
+            state.handle_response(WorkerResponse::NodeOptions {
+                request_id: 7,
+                options: options.clone(),
+            });
+            state.reveal_options_indicator(7);
+
+            assert!(!state.options_indicator_visible.get_untracked());
+            assert!(state.active_options.get_untracked().is_none());
+            assert_eq!(state.panel_path.get_untracked(), Some(Vec::new()));
+            assert_eq!(state.options.get_untracked().as_deref(), Some(&options));
+            assert!(Arc::ptr_eq(&state.result.get_untracked().unwrap(), &result));
+        });
+    }
+}
+
+#[test]
+fn cancelled_options_requests_cannot_reveal_the_indicator() {
+    let cancellations: [fn(&Controller); 4] = [
+        Controller::clear_form,
+        Controller::start_worker,
+        |controller| controller.set_locale(Locale::EnUs),
+        |controller| {
+            controller.state.handle_response(WorkerResponse::Failure {
+                request_id: Some(7),
+                failure: WorkerFailureDto {
+                    code: WorkerFailureCode::InvalidSession,
+                    related_id: None,
+                    selected: None,
+                    maximum: None,
+                },
+            });
+        },
+    ];
+    for cancel in cancellations {
+        for delay_elapsed in [false, true] {
+            Owner::new().with(|| {
+                let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
+                state.begin_options_request(7, vec![0]);
+                if delay_elapsed {
+                    state.reveal_options_indicator(7);
+                }
+
+                cancel(&Controller::new(state));
+                state.reveal_options_indicator(7);
+
+                assert!(!state.options_indicator_visible.get_untracked());
+                assert!(state.panel_path.get_untracked().is_none());
+                assert!(state.active_options.get_untracked().is_none());
+            });
+        }
+    }
 }
 
 #[test]
@@ -233,7 +414,7 @@ fn changing_locale_preserves_the_current_search_state() {
         assert_eq!(state.target_query.get_untracked(), "Shiva");
         assert_eq!(state.active_search.get_untracked(), Some(23));
         assert!(state.searching.get_untracked());
-        assert!(!state.dirty.get_untracked());
+        assert!(!untrack(|| state.result_is_stale()));
         assert!(!state.target_picker_open.get_untracked());
         assert!(!state.skill_picker_open.get_untracked());
         assert!(state.option_query.get_untracked().is_empty());

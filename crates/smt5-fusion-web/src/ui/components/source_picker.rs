@@ -86,12 +86,12 @@ pub(super) fn NodeOptionsPopover(
                         "ArrowUp" if count > 0 => {
                             event.prevent_default();
                             state.option_active_index.update(|index| {
-                                *index = index.saturating_sub(1);
+                                *index = index.saturating_sub(1).min(count - 1);
                             });
                         }
                         "Enter" => {
                             if let Some(option) = options.get(
-                                state.option_active_index.get_untracked().min(count.saturating_sub(1)),
+                                state.option_active_index.get_untracked(),
                             ) {
                                 event.prevent_default();
                                 keyboard_controller.select_option(option.option_id, option.selected);
@@ -101,7 +101,7 @@ pub(super) fn NodeOptionsPopover(
                     }
                 }
             />
-            <Show when=move || state.options_loading.get()>
+            <Show when=move || state.options_indicator_visible.get()>
                 <div class="panel-loading" role="status">
                     <span class="spinner" aria-hidden="true"></span>
                     {move || i18n.text(Message::OptionsLoading)}
@@ -204,7 +204,7 @@ fn OptionCard(option: VisibleOptionDto, index: usize) -> impl IntoView {
             type="button"
             role="option"
             aria-selected=selected
-            disabled=move || state.selection_busy.get()
+            disabled=move || !state.can_edit_route()
             on:mousemove=move |_| state.option_active_index.set(index)
             on:click=move |_| select_controller.select_option(option_id, selected)
         >

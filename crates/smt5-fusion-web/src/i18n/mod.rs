@@ -101,6 +101,7 @@ pub enum Message {
     EmptySlot,
     MaxDepth,
     Search,
+    SearchInProgress,
     Clear,
     LoadingData,
     EmptyResultTitle,
@@ -115,6 +116,7 @@ pub enum Message {
     CollapseAll,
     ResetDefault,
     StaleResult,
+    ResultReadOnly,
     NoRoute,
     NoRouteHelp,
     ChoosePlan,
@@ -219,7 +221,7 @@ pub enum Message {
 }
 
 impl Message {
-    pub const ALL: [Self; 130] = [
+    pub const ALL: [Self; 132] = [
         Self::SkipToMain,
         Self::AppTitle,
         Self::PageTitle,
@@ -235,6 +237,7 @@ impl Message {
         Self::EmptySlot,
         Self::MaxDepth,
         Self::Search,
+        Self::SearchInProgress,
         Self::Clear,
         Self::LoadingData,
         Self::EmptyResultTitle,
@@ -249,6 +252,7 @@ impl Message {
         Self::CollapseAll,
         Self::ResetDefault,
         Self::StaleResult,
+        Self::ResultReadOnly,
         Self::NoRoute,
         Self::NoRouteHelp,
         Self::ChoosePlan,
@@ -369,6 +373,7 @@ impl Message {
             Self::EmptySlot => "empty-slot",
             Self::MaxDepth => "max-depth",
             Self::Search => "search",
+            Self::SearchInProgress => "search-in-progress",
             Self::Clear => "clear",
             Self::LoadingData => "loading-data",
             Self::EmptyResultTitle => "empty-result-title",
@@ -383,6 +388,7 @@ impl Message {
             Self::CollapseAll => "collapse-all",
             Self::ResetDefault => "reset-default",
             Self::StaleResult => "stale-result",
+            Self::ResultReadOnly => "result-read-only",
             Self::NoRoute => "no-route",
             Self::NoRouteHelp => "no-route-help",
             Self::ChoosePlan => "choose-plan",

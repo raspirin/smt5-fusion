@@ -22,13 +22,6 @@ pub(crate) fn ErrorNotice() -> impl IntoView {
                     }}</p>
                 </div>
                 <div class="error-actions">
-                    <Show when=move || !state.worker_ready.get()>
-                        <button class="button button-secondary" type="button" on:click=move |_| {
-                            expect_context::<Controller>().start_worker();
-                        }>
-                            {move || i18n.text(Message::Retry)}
-                        </button>
-                    </Show>
                     <button class="button button-quiet" type="button" on:click=move |_| state.error.set(None)>
                         {move || i18n.text(Message::Dismiss)}
                     </button>

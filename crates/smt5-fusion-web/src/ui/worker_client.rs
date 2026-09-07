@@ -59,6 +59,8 @@ impl WorkerClient {
 #[cfg(target_arch = "wasm32")]
 impl Drop for WorkerClient {
     fn drop(&mut self) {
+        self.worker.set_onmessage(None);
+        self.worker.set_onerror(None);
         self.worker.terminate();
     }
 }
@@ -68,10 +70,17 @@ fn js_error(value: wasm_bindgen::JsValue) -> String {
     value.as_string().unwrap_or_else(|| format!("{value:?}"))
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod testing;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(super) use testing::TestWorker;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub use testing::WorkerClient;
+
+#[cfg(all(not(target_arch = "wasm32"), not(test)))]
 pub struct WorkerClient;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(test)))]
 impl WorkerClient {
     pub fn new(
         _on_response: Arc<dyn Fn(WorkerResponse) + Send + Sync>,

@@ -41,7 +41,7 @@ pub(super) fn TargetPicker() -> impl IntoView {
                     aria-activedescendant=move || target_active_descendant(state)
                     placeholder=move || i18n.text(Message::TargetSearch)
                     prop:value=move || state.target_query.get()
-                    disabled=move || !state.worker_ready.get()
+                    disabled=move || !state.worker_ready()
                     on:focus=move |event: web_sys::FocusEvent| {
                         if let Some(input) = event
                             .target()
@@ -86,7 +86,7 @@ pub(super) fn TargetPicker() -> impl IntoView {
                         }
                     }
                 />
-                <Show when=move || state.target_picker_open.get() && state.worker_ready.get()>
+                <Show when=move || state.target_picker_open.get() && state.worker_ready()>
                     <div id="target-options" class="target-options" role="listbox">
                         {move || {
                             let controller = expect_context::<Controller>();

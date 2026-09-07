@@ -45,8 +45,11 @@ fn ResultContent(result: Arc<SearchResultDto>) -> impl IntoView {
     view! {
         <div class="result-content">
             <div class="result-summary card">
-                <Show when=move || state.dirty.get()>
+                <Show when=move || state.result_is_stale()>
                     <p class="stale-notice" role="status">{move || i18n.text(Message::StaleResult)}</p>
+                </Show>
+                <Show when=move || !state.session_available.get() && !state.searching.get()>
+                    <p class="stale-notice" role="status">{move || i18n.text(Message::ResultReadOnly)}</p>
                 </Show>
                 <div class="result-summary-layout">
                     <div class="result-metrics">
@@ -89,9 +92,7 @@ fn ResultContent(result: Arc<SearchResultDto>) -> impl IntoView {
                         <button
                             class="button button-secondary"
                             type="button"
-                            disabled=move || {
-                                tree_actions_unavailable(state, has_tree) || !state.worker_ready.get()
-                            }
+                            disabled=move || !state.can_edit_route()
                             on:click=move |_| reset_controller.reset_default()
                         >
                             {move || i18n.text(Message::ResetDefault)}
