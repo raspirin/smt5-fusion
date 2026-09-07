@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 use crate::{
-    i18n::{skill_category_name, skill_category_slug, skill_name, text},
+    i18n::{Message, skill_category_slug},
     protocol::SkillCatalogDto,
 };
 
@@ -13,6 +13,7 @@ use super::super::{
 #[component]
 pub(crate) fn SkillPicker() -> impl IntoView {
     let state = expect_context::<Controller>().state;
+    let i18n = state.i18n;
     view! {
         <Show when=move || state.skill_picker_open.get()>
             <div
@@ -33,27 +34,36 @@ pub(crate) fn SkillPicker() -> impl IntoView {
                     }
                 >
                     <div class="node-options-heading">
-                        <strong id="skill-picker-heading">{text::SKILL_PICKER_TITLE}</strong>
-                        <button class="icon-button" type="button" aria-label={text::CLOSE} on:click=move |_| state.skill_picker_open.set(false)>"×"</button>
+                        <strong id="skill-picker-heading">{move || i18n.text(Message::SkillPickerTitle)}</strong>
+                        <button
+                            class="icon-button"
+                            type="button"
+                            aria-label=move || i18n.text(Message::Close)
+                            on:click=move |_| state.skill_picker_open.set(false)
+                        >
+                            "×"
+                        </button>
                     </div>
                     <div class="skill-picker-filters">
                         <input
                             class="text-input"
                             type="search"
                             autofocus=true
-                            placeholder={text::SKILL_SEARCH}
+                            placeholder=move || i18n.text(Message::SkillSearch)
                             prop:value=move || state.skill_query.get()
                             on:input=move |event| state.skill_query.set(event_target_value(&event))
                         />
                         <select
                             class="select-input"
-                            aria-label={text::SKILL_CATEGORY}
+                            aria-label=move || i18n.text(Message::SkillCategory)
                             prop:value=move || state.skill_category.get().map(category_code).unwrap_or("").to_owned()
                             on:change=move |event| state.skill_category.set(category_from_code(&event_target_value(&event)))
                         >
-                            <option value="">{text::ALL_CATEGORIES}</option>
+                            <option value="">{move || i18n.text(Message::AllCategories)}</option>
                             {skill_categories().into_iter().map(|category| view! {
-                                <option value=category_code(category)>{skill_category_name(category)}</option>
+                                <option value=category_code(category)>
+                                    {move || i18n.skill_category_name(category)}
+                                </option>
                             }).collect_view()}
                         </select>
                     </div>
@@ -61,7 +71,7 @@ pub(crate) fn SkillPicker() -> impl IntoView {
                         {move || {
                             let skills = filtered_skills(state);
                             if skills.is_empty() {
-                                view! { <p class="empty-list">{text::NO_MATCHING_SKILL}</p> }.into_any()
+                                view! { <p class="empty-list">{i18n.text(Message::NoMatchingSkill)}</p> }.into_any()
                             } else {
                                 skills.into_iter().map(|skill| view! {
                                     <SkillPickerOption skill />
@@ -78,16 +88,18 @@ pub(crate) fn SkillPicker() -> impl IntoView {
 #[component]
 fn SkillPickerOption(skill: SkillCatalogDto) -> impl IntoView {
     let controller = expect_context::<Controller>();
+    let i18n = controller.state.i18n;
     let skill_id = skill.id;
+    let category = skill.category;
     let option_class = format!(
         "picker-item skill-option kind-{}",
-        skill_category_slug(skill.category)
+        skill_category_slug(category)
     );
     view! {
         <button class=option_class type="button" on:click=move |_| controller.add_skill(skill_id)>
             <span class="skill-option-copy">
-                <strong>{skill_name(skill.id)}</strong>
-                <small>{skill_category_name(skill.category)}</small>
+                <strong>{move || i18n.skill_name(skill_id)}</strong>
+                <small>{move || i18n.skill_category_name(category)}</small>
             </span>
         </button>
     }

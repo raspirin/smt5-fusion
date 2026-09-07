@@ -1,3 +1,4 @@
+#[cfg(feature = "ui")]
 pub mod i18n;
 pub mod protocol;
 

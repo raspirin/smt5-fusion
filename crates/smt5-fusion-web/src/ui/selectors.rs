@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use leptos::prelude::*;
 
 use crate::{
-    i18n::{demon_name, skill_category_slug, skill_name},
+    i18n::{Locale, demon_name, skill_category_slug, skill_name},
     protocol::{
         CatalogDto, DemonCatalogDto, DemonContent, DemonId, DlcSettingsDto, OptionAcquisitionDto,
         RouteTreeNodeDto, SkillCatalogDto, SkillCategory, SkillId, VisibleOptionDto,
@@ -41,6 +41,7 @@ pub(super) fn filtered_demons(state: AppState) -> Vec<DemonCatalogDto> {
         dagda: state.dagda_dlc.get(),
     };
     let selected = state.target.get();
+    let locale = state.i18n.locale();
     let mut demons = catalog
         .demons
         .iter()
@@ -48,7 +49,7 @@ pub(super) fn filtered_demons(state: AppState) -> Vec<DemonCatalogDto> {
         .filter(|demon| {
             query.is_empty()
                 || selected == Some(demon.id)
-                || demon_name(demon.id).to_lowercase().contains(&query)
+                || demon_name(locale, demon.id).to_lowercase().contains(&query)
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -66,13 +67,16 @@ pub(super) fn filtered_skills(state: AppState) -> Vec<SkillCatalogDto> {
     let selected = state.required_skills.get();
     let query = state.skill_query.get().trim().to_lowercase();
     let category = state.skill_category.get();
+    let locale = state.i18n.locale();
     catalog
         .skills
         .iter()
         .filter(|skill| skill_eligible_for_target(target, skill))
         .filter(|skill| !selected.contains(&skill.id))
         .filter(|skill| category.is_none_or(|category| skill.category == category))
-        .filter(|skill| query.is_empty() || skill_name(skill.id).to_lowercase().contains(&query))
+        .filter(|skill| {
+            query.is_empty() || skill_name(locale, skill.id).to_lowercase().contains(&query)
+        })
         .cloned()
         .collect()
 }
@@ -89,10 +93,11 @@ pub(super) fn filtered_options(state: AppState) -> Vec<VisibleOptionDto> {
         return Vec::new();
     };
     let query = state.option_query.get().trim().to_lowercase();
+    let locale = state.i18n.locale();
     options
         .options
         .iter()
-        .filter(|option| option_matches(option, &query))
+        .filter(|option| option_matches(option, &query, locale))
         .cloned()
         .collect()
 }
@@ -101,14 +106,16 @@ pub(super) fn skill_eligible_for_target(target: &DemonCatalogDto, skill: &SkillC
     skill.supported && (skill.inheritable || target.natural_skills.contains(&skill.id))
 }
 
-pub(super) fn option_matches(option: &VisibleOptionDto, query: &str) -> bool {
+pub(super) fn option_matches(option: &VisibleOptionDto, query: &str, locale: Locale) -> bool {
     match &option.acquisition {
         OptionAcquisitionDto::Direct { .. } => query.is_empty(),
         OptionAcquisitionDto::Fusion { materials, .. } => {
             query.is_empty()
-                || materials
-                    .iter()
-                    .any(|material| demon_name(material.demon).to_lowercase().contains(query))
+                || materials.iter().any(|material| {
+                    demon_name(locale, material.demon)
+                        .to_lowercase()
+                        .contains(query)
+                })
         }
     }
 }

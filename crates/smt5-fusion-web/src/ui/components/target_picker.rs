@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::i18n::{demon_name, race_name, text};
+use crate::i18n::Message;
 
 use super::super::{
     events::focus_moved_outside,
@@ -13,12 +13,13 @@ use super::super::{
 pub(super) fn TargetPicker() -> impl IntoView {
     let controller = expect_context::<Controller>();
     let state = controller.state;
+    let i18n = state.i18n;
     let query_controller = controller.clone();
     let keyboard_controller = controller.clone();
 
     view! {
         <div class="field-group">
-            <label for="target-query">{text::TARGET_DEMON}</label>
+            <label for="target-query">{move || i18n.text(Message::TargetDemon)}</label>
             <div
                 class="target-combobox"
                 on:focusout=move |event: web_sys::FocusEvent| {
@@ -38,7 +39,7 @@ pub(super) fn TargetPicker() -> impl IntoView {
                     aria-controls="target-options"
                     aria-expanded=move || state.target_picker_open.get()
                     aria-activedescendant=move || target_active_descendant(state)
-                    placeholder={text::TARGET_SEARCH}
+                    placeholder=move || i18n.text(Message::TargetSearch)
                     prop:value=move || state.target_query.get()
                     disabled=move || !state.worker_ready.get()
                     on:focus=move |event: web_sys::FocusEvent| {
@@ -91,7 +92,7 @@ pub(super) fn TargetPicker() -> impl IntoView {
                             let controller = expect_context::<Controller>();
                             let candidates = filtered_demons(state);
                             if candidates.is_empty() {
-                                view! { <p class="empty-targets">{text::NO_MATCHING_DEMON}</p> }.into_any()
+                                view! { <p class="empty-targets">{i18n.text(Message::NoMatchingDemon)}</p> }.into_any()
                             } else {
                                 candidates
                                     .into_iter()
@@ -110,8 +111,8 @@ pub(super) fn TargetPicker() -> impl IntoView {
                                                 on:mousemove=move |_| state.target_active_index.set(index)
                                                 on:click=move |_| select_controller.select_target(Some(demon_id))
                                             >
-                                                <strong class="demon-name">{demon_name(demon_id)}</strong>
-                                                <span>{format!("Lv.{} · {}", demon.base_level, race_name(demon.race))}</span>
+                                                <strong class="demon-name">{i18n.demon_name(demon_id)}</strong>
+                                                <span>{format!("Lv.{} · {}", demon.base_level, i18n.race_name(demon.race))}</span>
                                             </button>
                                         }
                                     })

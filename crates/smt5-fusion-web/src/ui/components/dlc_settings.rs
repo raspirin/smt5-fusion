@@ -1,9 +1,6 @@
 use leptos::prelude::*;
 
-use crate::{
-    i18n::{content_name, text},
-    protocol::DemonContent,
-};
+use crate::{i18n::Message, protocol::DemonContent};
 
 use super::super::{events::event_checked, state::Controller};
 
@@ -11,10 +8,11 @@ use super::super::{events::event_checked, state::Controller};
 pub(super) fn DlcSettings() -> impl IntoView {
     let controller = expect_context::<Controller>();
     let state = controller.state;
+    let i18n = state.i18n;
 
     view! {
         <fieldset class="field-group">
-            <legend>{text::DLC_SETTINGS}</legend>
+            <legend>{move || i18n.text(Message::DlcSettings)}</legend>
             <label class="check-row">
                 <input
                     type="checkbox"
@@ -27,7 +25,7 @@ pub(super) fn DlcSettings() -> impl IntoView {
                         )
                     }
                 />
-                <span>{content_name(DemonContent::KonohanaSakuyaDlc).unwrap_or_default()}</span>
+                <span>{move || i18n.content_name(DemonContent::KonohanaSakuyaDlc)}</span>
             </label>
             <label class="check-row">
                 <input
@@ -38,7 +36,7 @@ pub(super) fn DlcSettings() -> impl IntoView {
                         event_checked(&event),
                     )
                 />
-                <span>{content_name(DemonContent::DagdaDlc).unwrap_or_default()}</span>
+                <span>{move || i18n.content_name(DemonContent::DagdaDlc)}</span>
             </label>
         </fieldset>
     }

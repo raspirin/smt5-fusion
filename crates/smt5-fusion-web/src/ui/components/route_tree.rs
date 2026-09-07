@@ -2,10 +2,7 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::{
-    i18n::{
-        content_name, demon_name, race_name, skill_category_name, skill_category_slug, skill_name,
-        text,
-    },
+    i18n::{Message, skill_category_slug},
     protocol::{DemonId, RouteTreeNodeDto, SkillId},
 };
 
@@ -32,6 +29,7 @@ struct OptionsPlacement {
 pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
     let controller = expect_context::<Controller>();
     let state = controller.state;
+    let i18n = state.i18n;
     let RouteTreeNodeDto {
         path,
         demon: demon_id,
@@ -52,14 +50,12 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
     let meta = catalog
         .as_deref()
         .and_then(|catalog| demon(catalog, demon_id));
-    let race = meta
-        .map(|meta| race_name(meta.race))
-        .unwrap_or(text::UNKNOWN_RACE);
-    let dlc = meta.and_then(|meta| content_name(meta.content));
+    let race = meta.map(|meta| meta.race);
+    let dlc = meta.map(|meta| meta.content);
     let required_label = if path.is_empty() {
-        text::REQUIRED_SKILLS
+        Message::RequiredSkills
     } else {
-        text::PROVIDED_SKILLS
+        Message::ProvidedSkills
     };
     let options_controller = controller.clone();
     let options_open_upward = RwSignal::new(false);
@@ -68,7 +64,7 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
     let required_view = (!required_skills.is_empty()).then(|| {
         view! {
             <div class="skill-block">
-                <div class="skill-badges" aria-label=required_label>
+                <div class="skill-badges" aria-label=move || i18n.text(required_label)>
                     {required_skills.iter().copied().map(|id| skill_badge(state, id)).collect_view()}
                 </div>
             </div>
@@ -86,9 +82,16 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
             <article class=node_class>
                 <div class="node-topline">
                     <div class="demon-heading">
-                        <span class="race-label">{race}</span>
-                        <h3 class="demon-name">{demon_name(demon_id)}</h3>
-                        {dlc.map(|label| view! { <span class="dlc-badge">{label}</span> })}
+                        <span class="race-label">{move || {
+                            race.map(|race| i18n.race_name(race))
+                                .unwrap_or_else(|| i18n.text(Message::UnknownRace))
+                        }}</span>
+                        <h3 class="demon-name">{move || i18n.demon_name(demon_id)}</h3>
+                        {dlc.and_then(|content| {
+                            (content != crate::protocol::DemonContent::Base).then(|| view! {
+                                <span class="dlc-badge">{move || i18n.content_name(content)}</span>
+                            })
+                        })}
                     </div>
                     {collapse_button}
                 </div>
@@ -106,34 +109,34 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
                     upgrade_skills
                 />
                 {required_view}
-                <div class="node-action-wrap">
-                    <button
-                        class="button button-secondary node-action"
-                        type="button"
-                        disabled=move || !state.worker_ready.get() || state.selection_busy.get()
-                        on:click=move |event| {
-                            place_options(
-                                &event,
-                                options_open_upward,
-                                options_max_height,
-                            );
-                            options_controller.open_options(option_path.clone());
-                        }
-                    >
-                        {text::CHOOSE_PLAN}
-                    </button>
-                    <Show when=move || state.panel_path.get().as_ref() == Some(&popover_path)>
-                        <div
-                            class="node-options-backdrop"
-                            aria-hidden="true"
-                            on:click=move |_| state.close_options()
-                        ></div>
-                        <NodeOptionsPopover
-                            open_upward=options_open_upward
-                            max_height=options_max_height
-                        />
-                    </Show>
-                </div>
+                    <div class="node-action-wrap">
+                        <button
+                            class="button button-secondary node-action"
+                            type="button"
+                            disabled=move || !state.worker_ready.get() || state.selection_busy.get()
+                            on:click=move |event| {
+                                place_options(
+                                    &event,
+                                    options_open_upward,
+                                    options_max_height,
+                                );
+                                options_controller.open_options(option_path.clone());
+                            }
+                        >
+                            {move || i18n.text(Message::ChoosePlan)}
+                        </button>
+                        <Show when=move || state.panel_path.get().as_ref() == Some(&popover_path)>
+                            <div
+                                class="node-options-backdrop"
+                                aria-hidden="true"
+                                on:click=move |_| state.close_options()
+                            ></div>
+                            <NodeOptionsPopover
+                                open_upward=options_open_upward
+                                max_height=options_max_height
+                            />
+                        </Show>
+                    </div>
             </article>
             <RouteNodeChildren path nodes=children />
         </li>
@@ -192,22 +195,23 @@ fn AcquisitionStages(
     acquisition_kind: AcquisitionKind,
     upgrade_skills: Vec<crate::protocol::UpgradeSkillDto>,
 ) -> impl IntoView {
+    let i18n = expect_context::<Controller>().state.i18n;
     (final_level > base_level).then(|| {
         view! {
-            <div class="state-flow" aria-label={text::LEVEL_UP_SKILLS}>
+            <div class="state-flow" aria-label=move || i18n.text(Message::LevelUpSkills)>
                 <div class="state-card final-state">
                     <div class="state-card-heading">
-                        <span class="state-label">{text::FINAL_STATE}</span>
-                        <strong class="demon-name">{demon_name(demon)}</strong>
+                        <span class="state-label">{move || i18n.text(Message::FinalState)}</span>
+                        <strong class="demon-name">{move || i18n.demon_name(demon)}</strong>
                     </div>
                     <span>"Lv."{final_level}</span>
                     {(!upgrade_skills.is_empty()).then(|| view! {
                         <div class="level-skills">
-                            <span class="meta-label">{text::LEVEL_UP_SKILLS}</span>
+                            <span class="meta-label">{move || i18n.text(Message::LevelUpSkills)}</span>
                             {upgrade_skills.into_iter().map(|learned| view! {
                                 <span class="level-skill">
                                     <b>{format!("Lv.{}", learned.level)}</b>
-                                    {skill_name(learned.skill)}
+                                    {move || i18n.skill_name(learned.skill)}
                                 </span>
                             }).collect_view()}
                         </div>
@@ -216,8 +220,8 @@ fn AcquisitionStages(
                 <span class="state-arrow" aria-hidden="true">"←"</span>
                 <div class="state-card initial-state">
                     <div class="state-card-heading">
-                        <span class="state-label">{text::INITIAL_STATE}</span>
-                        <strong class="demon-name">{demon_name(demon)}</strong>
+                        <span class="state-label">{move || i18n.text(Message::InitialState)}</span>
+                        <strong class="demon-name">{move || i18n.demon_name(demon)}</strong>
                     </div>
                     <div class="state-source">
                         <MethodLabel kind=acquisition_kind upgraded=true />
@@ -232,13 +236,14 @@ fn AcquisitionStages(
 #[component]
 fn CollapseButton(path: Vec<u8>) -> impl IntoView {
     let state = expect_context::<Controller>().state;
+    let i18n = state.i18n;
     let click_path = path.clone();
     let label_path = path.clone();
     view! {
         <button
             type="button"
             class="icon-button collapse-button"
-            aria-label={text::TOGGLE_MATERIALS}
+            aria-label=move || i18n.text(Message::ToggleMaterials)
             aria-expanded=move || !state.collapsed.get().contains(&path)
             on:click=move |_| state.collapsed.update(|collapsed| {
                 if !collapsed.remove(&click_path) {
@@ -265,14 +270,17 @@ fn RouteNodeChildren(path: Vec<u8>, nodes: Vec<RouteTreeNodeDto>) -> AnyView {
 }
 
 fn skill_badge(state: AppState, skill_id: SkillId) -> impl IntoView {
+    let i18n = state.i18n;
     let category = state
         .catalog
         .get_untracked()
         .and_then(|catalog| skill(&catalog, skill_id).map(|skill| skill.category));
     view! {
         <span class=category.map(|category| format!("skill-badge kind-{}", skill_category_slug(category))).unwrap_or_else(|| "skill-badge".to_owned())>
-            <strong>{skill_name(skill_id)}</strong>
-            {category.map(skill_category_name)}
+            <strong>{move || i18n.skill_name(skill_id)}</strong>
+            {category.map(|category| view! {
+                <span>{move || i18n.skill_category_name(category)}</span>
+            })}
         </span>
     }
 }

@@ -25,10 +25,24 @@
     --shadow-high: 0 24px 70px rgb(30 24 18 / 0.22);
     --radius: 10px;
     --radius-small: 6px;
+    --skill-separator: "、";
     --font-sans: "Noto Sans SC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
         "Microsoft YaHei", "PingFang SC", sans-serif;
     --font-serif: "Noto Serif SC", SimSun, "Songti SC", STSong, serif;
     font-family: var(--font-sans);
+}
+
+html:lang(en-US) {
+    --skill-separator: ", ";
+    --font-sans: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+    --font-serif: "Noto Serif", Georgia, "Times New Roman", serif;
+}
+
+html:lang(ja-JP) {
+    --font-sans: "Noto Sans JP", "Yu Gothic", "Hiragino Kaku Gothic ProN", Meiryo,
+        sans-serif;
+    --font-serif: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif;
 }
 
 * {
@@ -117,6 +131,7 @@ h3 {
 .site-header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 1rem;
     min-height: 104px;
     padding: 1.25rem max(1.25rem, calc((100vw - 1500px) / 2));
@@ -127,12 +142,109 @@ h3 {
     color: #fffaf1;
 }
 
+.site-title {
+    min-width: 0;
+}
+
 .site-header h1 {
     margin-bottom: 0;
     font-family: var(--font-serif);
     font-size: clamp(1.55rem, 3vw, 2.2rem);
     font-weight: 700;
     letter-spacing: 0.01em;
+}
+
+.language-picker {
+    position: relative;
+    flex: 0 0 auto;
+    min-width: 9rem;
+}
+
+.language-trigger {
+    display: flex;
+    width: 100%;
+    min-height: 44px;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid rgb(255 250 241 / 0.42);
+    border-radius: var(--radius-small);
+    background: #fffaf1;
+    color: var(--ink);
+    text-align: left;
+    transition:
+        background-color 120ms ease,
+        border-color 120ms ease,
+        color 120ms ease;
+}
+
+.language-trigger.open {
+    border-color: var(--orange);
+    box-shadow: 0 0 0 2px rgb(228 87 46 / 0.2);
+}
+
+.language-options {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 0.35rem);
+    right: 0;
+    display: grid;
+    width: 100%;
+    min-width: 9rem;
+    gap: 0.12rem;
+    padding: 0.35rem;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-small);
+    background: var(--surface);
+    box-shadow: var(--shadow-high);
+}
+
+.language-option {
+    display: flex;
+    width: 100%;
+    min-height: 44px;
+    align-items: center;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--ink);
+    text-align: left;
+    white-space: nowrap;
+    transition:
+        background-color 120ms ease,
+        color 120ms ease;
+}
+
+.language-option:hover,
+.language-option.active {
+    background: var(--orange-soft);
+    color: var(--orange-dark);
+}
+
+.language-option.selected {
+    border-color: var(--orange);
+    background: var(--orange-soft);
+    color: var(--orange-dark);
+}
+
+.language-trigger[lang="en-US"],
+.language-option[lang="en-US"] {
+    font-family: "Noto Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+}
+
+.language-trigger[lang="zh-CN"],
+.language-option[lang="zh-CN"] {
+    font-family: "Noto Sans SC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "Microsoft YaHei", "PingFang SC", sans-serif;
+}
+
+.language-trigger[lang="ja-JP"],
+.language-option[lang="ja-JP"] {
+    font-family: "Noto Sans JP", "Yu Gothic", "Hiragino Kaku Gothic ProN", Meiryo,
+        sans-serif;
+    font-weight: 450;
 }
 
 .title-ornament {
@@ -1150,10 +1262,6 @@ h3 {
     overscroll-behavior: contain;
 }
 
-.load-more {
-    width: 100%;
-}
-
 .option-card {
     display: grid;
     min-height: 0;
@@ -1250,7 +1358,7 @@ h3 {
 }
 
 .compact-skills span:not(:last-child)::after {
-    content: "、";
+    content: var(--skill-separator);
     color: var(--ink-soft);
 }
 
@@ -1269,12 +1377,13 @@ h3 {
     z-index: 50;
     right: max(1rem, env(safe-area-inset-right));
     bottom: max(1rem, env(safe-area-inset-bottom));
-    display: flex;
+    display: grid;
     width: min(540px, calc(100vw - 2rem));
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.85rem 1rem;
+    max-height: calc(100vh - 2rem);
+    gap: 0.8rem;
+    padding: 1rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     border: 1px solid #d7a09a;
     border-left: 4px solid var(--danger);
     border-radius: var(--radius);
@@ -1282,20 +1391,34 @@ h3 {
     box-shadow: var(--shadow-high);
 }
 
-.error-notice strong {
-    color: var(--danger);
+.error-content {
+    min-width: 0;
 }
 
-.error-notice p {
-    margin: 0.15rem 0 0;
+.error-title {
+    color: var(--danger);
+    font-size: 1.02rem;
+    font-weight: 650;
+    line-height: 1.3;
+}
+
+.error-message {
+    margin: 0.38rem 0 0;
+    overflow-wrap: anywhere;
     color: #6e3434;
-    font-size: 0.8rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
 }
 
 .error-actions {
     display: flex;
-    flex: 0 0 auto;
-    gap: 0.35rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.4rem;
+}
+
+.error-actions .button {
+    min-height: 44px;
 }
 
 .kind-physical {
@@ -1406,7 +1529,17 @@ h3 {
 
 @media (max-width: 480px) {
     .site-header {
+        flex-wrap: wrap;
         gap: 0.7rem;
+    }
+
+    .site-title {
+        flex: 1 1 13rem;
+    }
+
+    .language-picker {
+        max-width: 100%;
+        margin-left: auto;
     }
 
     .site-header h1 {
@@ -1482,12 +1615,8 @@ h3 {
         right: 0.55rem;
         bottom: max(0.55rem, env(safe-area-inset-bottom));
         width: calc(100vw - 1.1rem);
-        align-items: stretch;
-        flex-direction: column;
-    }
-
-    .error-actions {
-        justify-content: flex-end;
+        max-height: calc(100vh - 1.1rem);
+        padding: 0.9rem;
     }
 }
 

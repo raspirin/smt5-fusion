@@ -1,9 +1,11 @@
 use leptos::prelude::*;
 
 use crate::{
-    i18n::text,
+    i18n::Message,
     protocol::{AcquisitionDto, OptionAcquisitionDto},
 };
+
+use super::super::state::Controller;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum AcquisitionKind {
@@ -53,12 +55,12 @@ impl AcquisitionKind {
         }
     }
 
-    fn label(self, upgraded: bool) -> &'static str {
+    fn label(self, upgraded: bool) -> Message {
         match (self, upgraded) {
-            (Self::Direct, true) => text::DIRECT_AND_UPGRADE,
-            (Self::Direct, false) => text::DIRECT,
-            (Self::Normal, _) => text::NORMAL_FUSION,
-            (Self::Special, _) => text::SPECIAL_FUSION,
+            (Self::Direct, true) => Message::DirectAndUpgrade,
+            (Self::Direct, false) => Message::Direct,
+            (Self::Normal, _) => Message::NormalFusion,
+            (Self::Special, _) => Message::SpecialFusion,
         }
     }
 
@@ -73,5 +75,6 @@ impl AcquisitionKind {
 
 #[component]
 pub(super) fn MethodLabel(kind: AcquisitionKind, upgraded: bool) -> impl IntoView {
-    view! { <span class=kind.class()>{kind.label(upgraded)}</span> }
+    let i18n = expect_context::<Controller>().state.i18n;
+    view! { <span class=kind.class()>{move || i18n.text(kind.label(upgraded))}</span> }
 }

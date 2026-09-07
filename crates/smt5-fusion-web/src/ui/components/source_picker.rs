@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 use crate::{
-    i18n::{demon_name, race_name, skill_name, text},
+    i18n::Message,
     protocol::{OptionAcquisitionDto, VisibleOptionDto},
 };
 
@@ -9,7 +9,7 @@ use super::{
     super::{
         events::focus_moved_outside,
         selectors::{demon, filtered_options, source_active_descendant},
-        state::{Controller, OPTION_BATCH_SIZE},
+        state::Controller,
     },
     acquisition::{AcquisitionKind, MethodLabel},
     level_flow::LevelFlow,
@@ -22,6 +22,7 @@ pub(super) fn NodeOptionsPopover(
 ) -> impl IntoView {
     let controller = expect_context::<Controller>();
     let state = controller.state;
+    let i18n = state.i18n;
     let keyboard_controller = controller.clone();
     view! {
         <section
@@ -43,15 +44,18 @@ pub(super) fn NodeOptionsPopover(
         >
             <div class="node-options-heading">
                 <strong id="node-options-heading">
-                    {move || state.options.get().map(|options| view! {
-                        <span>{text::OPTIONS_TITLE_PREFIX}</span>
-                        <span class="demon-name">{demon_name(options.demon)}</span>
-                        <span>{text::OPTIONS_TITLE_SUFFIX}</span>
-                    }.into_any()).unwrap_or_else(|| view! {
-                        <span>{text::CHOOSE_PLAN}</span>
-                    }.into_any())}
+                    {move || state.options.get().map(|options| {
+                        i18n.options_title(&i18n.demon_name(options.demon))
+                    }).unwrap_or_else(|| i18n.text(Message::ChoosePlan))}
                 </strong>
-                <button class="icon-button" type="button" aria-label={text::CLOSE} on:click=move |_| state.close_options()>"×"</button>
+                <button
+                    class="icon-button"
+                    type="button"
+                    aria-label=move || i18n.text(Message::Close)
+                    on:click=move |_| state.close_options()
+                >
+                    "×"
+                </button>
             </div>
             <input
                 class="text-input source-search"
@@ -63,16 +67,15 @@ pub(super) fn NodeOptionsPopover(
                 aria-controls="node-option-list"
                 aria-expanded="true"
                 aria-activedescendant=move || source_active_descendant(state)
-                placeholder={text::FILTER_MATERIAL}
+                placeholder=move || i18n.text(Message::FilterMaterial)
                 prop:value=move || state.option_query.get()
                 on:input=move |event| {
                     state.option_query.set(event_target_value(&event));
                     state.option_active_index.set(0);
-                    state.option_limit.set(OPTION_BATCH_SIZE);
                 }
                 on:keydown=move |event: web_sys::KeyboardEvent| {
                     let options = filtered_options(state);
-                    let count = options.len().min(state.option_limit.get_untracked());
+                    let count = options.len();
                     match event.key().as_str() {
                         "ArrowDown" if count > 0 => {
                             event.prevent_default();
@@ -101,34 +104,19 @@ pub(super) fn NodeOptionsPopover(
             <Show when=move || state.options_loading.get()>
                 <div class="panel-loading" role="status">
                     <span class="spinner" aria-hidden="true"></span>
-                    {text::OPTIONS_LOADING}
+                    {move || i18n.text(Message::OptionsLoading)}
                 </div>
             </Show>
             <Show when=move || state.options.get().is_some()>
                 <div id="node-option-list" class="node-option-list" role="listbox">
                     {move || {
                         let options = filtered_options(state);
-                        let option_count = options.len();
-                        let limit = state.option_limit.get();
                         if options.is_empty() {
-                            view! { <p class="empty-list">{text::NO_MATCHING_PLAN}</p> }.into_any()
+                            view! { <p class="empty-list">{i18n.text(Message::NoMatchingPlan)}</p> }.into_any()
                         } else {
-                            view! {
-                                {options.into_iter().take(limit).enumerate().map(|(index, option)| view! {
-                                    <OptionCard option index />
-                                }).collect_view()}
-                                {(option_count > limit).then(|| view! {
-                                    <button
-                                        class="button button-secondary load-more"
-                                        type="button"
-                                        on:click=move |_| {
-                                            state.option_limit.update(|limit| *limit += OPTION_BATCH_SIZE)
-                                        }
-                                    >
-                                        {text::show_more(option_count - limit)}
-                                    </button>
-                                })}
-                            }.into_any()
+                            options.into_iter().enumerate().map(|(index, option)| view! {
+                                <OptionCard option index />
+                            }).collect_view().into_any()
                         }
                     }}
                 </div>
@@ -141,6 +129,7 @@ pub(super) fn NodeOptionsPopover(
 fn OptionCard(option: VisibleOptionDto, index: usize) -> impl IntoView {
     let controller = expect_context::<Controller>();
     let state = controller.state;
+    let i18n = state.i18n;
     let option_id = option.option_id;
     let selected = option.selected;
     let acquisition_kind = AcquisitionKind::from_option(&option.acquisition);
@@ -169,20 +158,21 @@ fn OptionCard(option: VisibleOptionDto, index: usize) -> impl IntoView {
                 <div class="option-titleline">
                     <MethodLabel kind=acquisition_kind upgraded={target_level > fusion_level} />
                     <LevelFlow initial_level=fusion_level final_level=target_level />
-                    <span class="level-flow">{text::route_depth(route_depth)}</span>
+                    <span class="level-flow">{move || i18n.route_depth(route_depth)}</span>
                 </div>
                 <div class="material-list">
                     {materials.into_iter().enumerate().map(|(material_index, material)| {
                         let details = state.catalog.get_untracked().and_then(|catalog| {
-                            demon(&catalog, material.demon).map(|meta| {
-                                format!("{} · Lv.{}", race_name(meta.race), meta.base_level)
-                            })
-                        }).unwrap_or_default();
+                            demon(&catalog, material.demon).map(|meta| (meta.race, meta.base_level))
+                        });
                         let required_skills = (!material.required_skills.is_empty()).then(|| view! {
                             <div class="compact-skills">
-                                {material.required_skills.iter().map(|id| view! { <span>{skill_name(*id)}</span> }).collect_view()}
+                                {material.required_skills.iter().copied().map(|id| view! {
+                                    <span>{move || i18n.skill_name(id)}</span>
+                                }).collect_view()}
                             </div>
                         });
+                        let material_demon = material.demon;
                         view! {
                             <div class="material-entry">
                                 {(material_index > 0).then(|| view! {
@@ -190,8 +180,10 @@ fn OptionCard(option: VisibleOptionDto, index: usize) -> impl IntoView {
                                 })}
                                 <div class="material-row">
                                     <div>
-                                        <strong class="demon-name">{demon_name(material.demon)}</strong>
-                                        <small>{details}</small>
+                                        <strong class="demon-name">{move || i18n.demon_name(material_demon)}</strong>
+                                        <small>{move || details.map(|(race, level)| {
+                                            format!("{} · Lv.{level}", i18n.race_name(race))
+                                        }).unwrap_or_default()}</small>
                                         {required_skills}
                                     </div>
                                 </div>
@@ -217,7 +209,11 @@ fn OptionCard(option: VisibleOptionDto, index: usize) -> impl IntoView {
             on:click=move |_| select_controller.select_option(option_id)
         >
             {content}
-            <span class="option-action">{if selected { text::CURRENT_PLAN } else { text::USE_PLAN }}</span>
+            <span class="option-action">{move || i18n.text(if selected {
+                Message::CurrentPlan
+            } else {
+                Message::UsePlan
+            })}</span>
         </button>
     }
 }

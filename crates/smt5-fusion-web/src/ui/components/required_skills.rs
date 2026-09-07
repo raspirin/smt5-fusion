@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::i18n::{skill_category_name, skill_category_slug, skill_name, text};
+use crate::i18n::{Message, skill_category_slug};
 
 use super::super::{
     selectors::skill,
@@ -9,9 +9,10 @@ use super::super::{
 
 #[component]
 pub(super) fn RequiredSkills() -> impl IntoView {
+    let i18n = expect_context::<Controller>().state.i18n;
     view! {
         <div class="field-group">
-            <span class="field-label">{text::REQUIRED_SKILLS}</span>
+            <span class="field-label">{move || i18n.text(Message::RequiredSkills)}</span>
             <div class="skill-slots">
                 {(0..SKILL_CAPACITY).map(|index| view! { <SkillSlot index /> }).collect_view()}
             </div>
@@ -23,6 +24,7 @@ pub(super) fn RequiredSkills() -> impl IntoView {
 fn SkillSlot(index: usize) -> impl IntoView {
     let controller = expect_context::<Controller>();
     let state = controller.state;
+    let i18n = state.i18n;
     let remove_controller = controller.clone();
     view! {
         {move || {
@@ -36,21 +38,22 @@ fn SkillSlot(index: usize) -> impl IntoView {
                     let slot_class = category
                         .map(|category| format!("skill-slot filled kind-{}", skill_category_slug(category)))
                         .unwrap_or_else(|| "skill-slot filled".to_owned());
+                    let localized_skill = i18n.skill_name(skill_id);
                     view! {
                         <div class=slot_class>
                             <div>
                                 <span class="slot-number">{format!("{:02}", index + 1)}</span>
-                                <strong>{skill_name(skill_id)}</strong>
+                                <strong>{localized_skill.clone()}</strong>
                                 {category.map(|category| view! {
                                     <span class=format!("skill-kind kind-{}", skill_category_slug(category))>
-                                        {skill_category_name(category)}
+                                        {i18n.skill_category_name(category)}
                                     </span>
                                 })}
                             </div>
                             <button
                                 type="button"
                                 class="icon-button"
-                                aria-label=text::remove_skill(skill_name(skill_id))
+                                aria-label=i18n.remove_skill(&localized_skill)
                                 on:click={
                                     let controller = remove_controller.clone();
                                     move |_| controller.remove_skill(index)
@@ -69,7 +72,7 @@ fn SkillSlot(index: usize) -> impl IntoView {
                         on:click=move |_| state.skill_picker_open.set(true)
                     >
                         <span class="slot-number">{format!("{:02}", index + 1)}</span>
-                        <span>{text::EMPTY_SLOT}</span>
+                        <span>{i18n.text(Message::EmptySlot)}</span>
                     </button>
                 }.into_any(),
             }

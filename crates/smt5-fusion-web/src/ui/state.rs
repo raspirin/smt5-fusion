@@ -11,7 +11,7 @@ use send_wrapper::SendWrapper;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    i18n::{demon_name, text},
+    i18n::{I18n, Locale, Message},
     protocol::{
         CatalogDto, DemonContent, DemonId, DlcSettingsDto, MAX_FUSION_DEPTH, NodeOptionsDto,
         RouteTreeNodeDto, SearchInputDto, SearchResultDto, SelectionSnapshotDto, SkillCategory,
@@ -27,7 +27,6 @@ use super::{
 #[cfg(target_arch = "wasm32")]
 const STORAGE_KEY: &str = "smt5-fusion-web:search-form:v1";
 const DEFAULT_FUSION_DEPTH: u32 = 2;
-pub(super) const OPTION_BATCH_SIZE: usize = 50;
 pub(super) const SKILL_CAPACITY: usize = 8;
 
 #[derive(Clone, Copy)]
@@ -44,8 +43,9 @@ pub(super) struct AppState {
     pub(super) options_loading: RwSignal<bool>,
     pub(super) panel_path: RwSignal<Option<Vec<u8>>>,
     pub(super) collapsed: RwSignal<BTreeSet<Vec<u8>>>,
-    pub(super) error: RwSignal<Option<String>>,
+    pub(super) error: RwSignal<Option<AppError>>,
     pub(super) dirty: RwSignal<bool>,
+    pub(super) i18n: I18n,
     pub(super) target: RwSignal<Option<DemonId>>,
     pub(super) required_skills: RwSignal<Vec<SkillId>>,
     pub(super) max_depth: RwSignal<u32>,
@@ -59,11 +59,10 @@ pub(super) struct AppState {
     pub(super) skill_category: RwSignal<Option<SkillCategory>>,
     pub(super) option_query: RwSignal<String>,
     pub(super) option_active_index: RwSignal<usize>,
-    pub(super) option_limit: RwSignal<usize>,
 }
 
 impl AppState {
-    pub(super) fn new(form: PersistedForm) -> Self {
+    pub(super) fn new(form: PersistedForm, i18n: I18n) -> Self {
         Self {
             catalog: RwSignal::new(None),
             worker_ready: RwSignal::new(false),
@@ -79,6 +78,7 @@ impl AppState {
             collapsed: RwSignal::new(BTreeSet::new()),
             error: RwSignal::new(None),
             dirty: RwSignal::new(false),
+            i18n,
             target: RwSignal::new(form.target),
             required_skills: RwSignal::new(form.required_skills),
             max_depth: RwSignal::new(form.max_depth),
@@ -92,7 +92,6 @@ impl AppState {
             skill_category: RwSignal::new(None),
             option_query: RwSignal::new(String::new()),
             option_active_index: RwSignal::new(0),
-            option_limit: RwSignal::new(OPTION_BATCH_SIZE),
         }
     }
 
@@ -103,9 +102,8 @@ impl AppState {
                 self.target_query.set(
                     self.target
                         .get_untracked()
-                        .map(demon_name)
-                        .unwrap_or_default()
-                        .to_owned(),
+                        .map(|id| self.i18n.demon_name_untracked(id))
+                        .unwrap_or_default(),
                 );
                 self.catalog.set(Some(Arc::new(catalog)));
                 self.worker_ready.set(true);
@@ -143,8 +141,6 @@ impl AppState {
                         .position(|option| option.selected)
                         .unwrap_or(0);
                     self.option_active_index.set(selected_index);
-                    self.option_limit
-                        .set((selected_index + 1).max(OPTION_BATCH_SIZE));
                     self.options.set(Some(Arc::new(options)));
                 }
             }
@@ -172,7 +168,6 @@ impl AppState {
                 if request_id.is_some() && !search_failed && !options_failed && !mutation_failed {
                     return;
                 }
-                let message = failure_message(&failure);
                 batch(|| {
                     if search_failed {
                         self.active_search.set(None);
@@ -185,7 +180,7 @@ impl AppState {
                         self.active_mutation.set(None);
                         self.selection_busy.set(false);
                     }
-                    self.error.set(Some(message));
+                    self.error.set(Some(AppError::WorkerFailure(failure)));
                 });
             }
         }
@@ -299,11 +294,6 @@ impl Controller {
             next_request_id: Arc::new(AtomicU64::new(1)),
             on_response: Arc::new(move |response| response_state.handle_response(response)),
             on_error: Arc::new(move |details| {
-                let message = if details.is_empty() {
-                    text::WORKER_FAILED.to_owned()
-                } else {
-                    text::worker_failed_with_details(&details)
-                };
                 batch(|| {
                     error_state.worker_ready.set(false);
                     error_state.searching.set(false);
@@ -311,7 +301,7 @@ impl Controller {
                     error_state.active_search.set(None);
                     error_state.active_mutation.set(None);
                     error_state.close_options();
-                    error_state.error.set(Some(message));
+                    error_state.error.set(Some(AppError::WorkerFailed(details)));
                 });
             }),
         }
@@ -344,7 +334,7 @@ impl Controller {
             .lock()
             .expect("worker lock must be available")
             .as_ref()
-            .ok_or_else(|| text::WORKER_FAILED.to_owned())
+            .ok_or_else(String::new)
             .and_then(|worker| worker.send(&request));
         if let Err(error) = result {
             (self.on_error)(error);
@@ -362,13 +352,13 @@ impl Controller {
             return;
         }
         let Some(input) = self.state.current_input() else {
-            self.state
-                .error
-                .set(Some(text::SELECT_TARGET_ERROR.to_owned()));
+            self.state.error.set(Some(AppError::SelectTarget));
             return;
         };
         if !self.state.worker_ready.get_untracked() {
-            self.state.error.set(Some(text::WORKER_FAILED.to_owned()));
+            self.state
+                .error
+                .set(Some(AppError::WorkerFailed(String::new())));
             return;
         }
         let request_id = self.next_request();
@@ -395,7 +385,6 @@ impl Controller {
         self.state.options_loading.set(true);
         self.state.option_query.set(String::new());
         self.state.option_active_index.set(0);
-        self.state.option_limit.set(OPTION_BATCH_SIZE);
         self.state.active_options.set(Some(request_id));
         if !self.send(WorkerRequest::GetNodeOptions {
             request_id,
@@ -462,7 +451,7 @@ impl Controller {
             .state
             .target
             .get_untracked()
-            .is_some_and(|target| demon_name(target) != query.trim())
+            .is_some_and(|target| self.state.i18n.demon_name_untracked(target) != query.trim())
         {
             self.state.target.set(None);
             self.state.required_skills.set(Vec::new());
@@ -472,9 +461,11 @@ impl Controller {
 
     pub(super) fn select_target(&self, target: Option<DemonId>) {
         self.state.target.set(target);
-        self.state
-            .target_query
-            .set(target.map(demon_name).unwrap_or_default().to_owned());
+        self.state.target_query.set(
+            target
+                .map(|id| self.state.i18n.demon_name_untracked(id))
+                .unwrap_or_default(),
+        );
         self.state.target_picker_open.set(false);
         self.state.target_active_index.set(0);
         let initial = target
@@ -496,6 +487,29 @@ impl Controller {
             .unwrap_or_default();
         self.state.required_skills.set(initial);
         self.form_changed();
+    }
+
+    pub(super) fn set_locale(&self, locale: Locale) {
+        if self.state.i18n.locale_untracked() == locale {
+            return;
+        }
+        batch(|| {
+            self.state.target_picker_open.set(false);
+            self.state.target_active_index.set(0);
+            self.state.skill_picker_open.set(false);
+            self.state.skill_query.set(String::new());
+            self.state.skill_category.set(None);
+            self.state.option_query.set(String::new());
+            self.state.close_options();
+            self.state.i18n.set_locale(locale);
+            self.state.target_query.set(
+                self.state
+                    .target
+                    .get_untracked()
+                    .map(|id| self.state.i18n.demon_name_untracked(id))
+                    .unwrap_or_default(),
+            );
+        });
     }
 
     pub(super) fn set_dlc(&self, content: DemonContent, enabled: bool) {
@@ -631,28 +645,40 @@ impl PersistedForm {
     }
 }
 
-fn failure_message(failure: &WorkerFailureDto) -> String {
-    match failure.code {
-        WorkerFailureCode::UnknownDemon => text::ERROR_UNKNOWN_DEMON.to_owned(),
-        WorkerFailureCode::UnknownSkill => text::ERROR_UNKNOWN_SKILL.to_owned(),
-        WorkerFailureCode::UnsupportedSkill => text::ERROR_UNSUPPORTED_SKILL.to_owned(),
-        WorkerFailureCode::TooManySkills => text::too_many_skills(
-            failure.selected.unwrap_or_default(),
-            failure.maximum.unwrap_or(SKILL_CAPACITY),
-        ),
-        WorkerFailureCode::UnavailableTarget => text::ERROR_UNAVAILABLE_TARGET.to_owned(),
-        WorkerFailureCode::ExpandedStatesLimit | WorkerFailureCode::SkillAssignmentsLimit => {
-            text::ERROR_SAFETY_LIMIT.to_owned()
-        }
-        WorkerFailureCode::InvalidSession | WorkerFailureCode::StaleSelection => {
-            text::ERROR_STALE_SELECTION.to_owned()
-        }
-        WorkerFailureCode::InvalidPath | WorkerFailureCode::InvalidOption => {
-            text::ERROR_INVALID_OPTION.to_owned()
-        }
-        WorkerFailureCode::NoRoute => text::NO_ROUTE.to_owned(),
-        WorkerFailureCode::InvalidMessage | WorkerFailureCode::Internal => {
-            text::ERROR_INTERNAL.to_owned()
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum AppError {
+    SelectTarget,
+    WorkerFailed(String),
+    WorkerFailure(WorkerFailureDto),
+}
+
+impl AppError {
+    pub(super) fn localized(&self, i18n: I18n) -> String {
+        match self {
+            Self::SelectTarget => i18n.text(Message::SelectTargetError),
+            Self::WorkerFailed(details) => i18n.worker_failed(details),
+            Self::WorkerFailure(failure) => match failure.code {
+                WorkerFailureCode::UnknownDemon => i18n.text(Message::ErrorUnknownDemon),
+                WorkerFailureCode::UnknownSkill => i18n.text(Message::ErrorUnknownSkill),
+                WorkerFailureCode::UnsupportedSkill => i18n.text(Message::ErrorUnsupportedSkill),
+                WorkerFailureCode::TooManySkills => i18n.too_many_skills(
+                    failure.selected.unwrap_or_default(),
+                    failure.maximum.unwrap_or(SKILL_CAPACITY),
+                ),
+                WorkerFailureCode::UnavailableTarget => i18n.text(Message::ErrorUnavailableTarget),
+                WorkerFailureCode::ExpandedStatesLimit
+                | WorkerFailureCode::SkillAssignmentsLimit => i18n.text(Message::ErrorSafetyLimit),
+                WorkerFailureCode::InvalidSession | WorkerFailureCode::StaleSelection => {
+                    i18n.text(Message::ErrorStaleSelection)
+                }
+                WorkerFailureCode::InvalidPath | WorkerFailureCode::InvalidOption => {
+                    i18n.text(Message::ErrorInvalidOption)
+                }
+                WorkerFailureCode::NoRoute => i18n.text(Message::NoRoute),
+                WorkerFailureCode::InvalidMessage | WorkerFailureCode::Internal => {
+                    i18n.text(Message::ErrorInternal)
+                }
+            },
         }
     }
 }

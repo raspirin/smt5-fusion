@@ -2,14 +2,17 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use leptos::prelude::*;
 
-use crate::protocol::{
-    AcquisitionDto, DemonId, DlcSettingsDto, OptionAcquisitionDto, RouteTreeNodeDto,
-    SearchInputDto, SearchResultDto, VisibleOptionDto,
+use crate::{
+    i18n::{I18n, Locale},
+    protocol::{
+        AcquisitionDto, DemonId, DlcSettingsDto, OptionAcquisitionDto, RouteTreeNodeDto,
+        SearchInputDto, SearchResultDto, VisibleOptionDto, WorkerFailureCode, WorkerFailureDto,
+    },
 };
 
 use super::{
     selectors::{all_collapsible_paths, grouped_digits, option_matches},
-    state::{AppState, Controller, PersistedForm},
+    state::{AppError, AppState, Controller, PersistedForm},
 };
 
 #[test]
@@ -48,10 +51,11 @@ fn source_search_matches_only_demons_present_in_an_option() {
         },
     };
 
-    assert!(option_matches(&direct, ""));
-    assert!(!option_matches(&direct, "巴隆"));
-    assert!(option_matches(&fusion, "巴隆"));
-    assert!(!option_matches(&fusion, "湿婆"));
+    assert!(option_matches(&direct, "", Locale::ZhCn));
+    assert!(!option_matches(&direct, "巴隆", Locale::ZhCn));
+    assert!(option_matches(&fusion, "巴隆", Locale::ZhCn));
+    assert!(!option_matches(&fusion, "湿婆", Locale::ZhCn));
+    assert!(option_matches(&fusion, "barong", Locale::EnUs));
 }
 
 #[test]
@@ -89,7 +93,7 @@ fn collapse_all_collects_every_node_with_materials() {
 #[test]
 fn selected_depth_is_copied_into_the_search_input() {
     Owner::new().with(|| {
-        let state = AppState::new(PersistedForm::default());
+        let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
         state.target.set(Some(DemonId(193)));
         let controller = Controller::new(state);
 
@@ -106,7 +110,7 @@ fn selected_depth_is_copied_into_the_search_input() {
 #[test]
 fn clearing_the_form_also_clears_the_route() {
     Owner::new().with(|| {
-        let state = AppState::new(PersistedForm::default());
+        let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
         state.target.set(Some(DemonId(193)));
         state.result.set(Some(Arc::new(SearchResultDto {
             session_id: 1,
@@ -132,6 +136,90 @@ fn clearing_the_form_also_clears_the_route() {
         assert!(state.active_search.get_untracked().is_none());
         assert!(!state.searching.get_untracked());
         assert!(!state.dirty.get_untracked());
+    });
+}
+
+#[test]
+fn changing_locale_preserves_the_current_search_state() {
+    Owner::new().with(|| {
+        let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
+        state.target.set(Some(DemonId(193)));
+        state
+            .required_skills
+            .set(vec![crate::protocol::SkillId(745)]);
+        state.max_depth.set(4);
+        state.result.set(Some(Arc::new(SearchResultDto {
+            session_id: 17,
+            selection_revision: 3,
+            input: SearchInputDto {
+                target: DemonId(193),
+                required_skills: vec![crate::protocol::SkillId(745)],
+                max_fusion_depth: 4,
+                dlc: DlcSettingsDto::default(),
+            },
+            route_count: "67660618831471573302955414412367".to_owned(),
+            actual_fusion_depth: 4,
+            tree: None,
+        })));
+        state.target_picker_open.set(true);
+        state.skill_picker_open.set(true);
+        state.option_query.set("湿婆".to_owned());
+        state.active_search.set(Some(23));
+        state.searching.set(true);
+
+        Controller::new(state).set_locale(Locale::EnUs);
+
+        assert_eq!(state.i18n.locale_untracked(), Locale::EnUs);
+        assert_eq!(state.target.get_untracked(), Some(DemonId(193)));
+        assert_eq!(
+            state.required_skills.get_untracked(),
+            vec![crate::protocol::SkillId(745)]
+        );
+        assert_eq!(state.max_depth.get_untracked(), 4);
+        let result = state.result.get_untracked().expect("result must remain");
+        assert_eq!(result.session_id, 17);
+        assert_eq!(result.selection_revision, 3);
+        assert_eq!(result.route_count, "67660618831471573302955414412367");
+        assert_eq!(state.target_query.get_untracked(), "Shiva");
+        assert_eq!(state.active_search.get_untracked(), Some(23));
+        assert!(state.searching.get_untracked());
+        assert!(!state.dirty.get_untracked());
+        assert!(!state.target_picker_open.get_untracked());
+        assert!(!state.skill_picker_open.get_untracked());
+        assert!(state.option_query.get_untracked().is_empty());
+    });
+}
+
+#[test]
+fn structured_errors_follow_the_current_locale() {
+    Owner::new().with(|| {
+        let i18n = I18n::new(Locale::ZhCn);
+        let error = AppError::WorkerFailure(WorkerFailureDto {
+            code: WorkerFailureCode::TooManySkills,
+            related_id: None,
+            selected: Some(9),
+            maximum: Some(8),
+        });
+        let localized = Memo::new(move |_| error.localized(i18n));
+
+        assert_eq!(
+            localized.get_untracked(),
+            "选择了 9 个技能，最多只能保留 8 个。"
+        );
+        i18n.set_locale(Locale::EnUs);
+        assert_eq!(
+            localized.get_untracked(),
+            "You selected 9 skills; at most 8 can be kept."
+        );
+    });
+}
+
+#[test]
+fn clearing_the_form_does_not_reset_the_locale() {
+    Owner::new().with(|| {
+        let state = AppState::new(PersistedForm::default(), I18n::new(Locale::JaJp));
+        Controller::new(state).clear_form();
+        assert_eq!(state.i18n.locale_untracked(), Locale::JaJp);
     });
 }
 
