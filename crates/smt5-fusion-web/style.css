@@ -124,11 +124,11 @@ h3 {
     border-radius: var(--radius-small);
     background: var(--surface);
     color: var(--ink);
-    box-shadow: var(--shadow-high);
 }
 
 .skip-link:focus {
     transform: none;
+    box-shadow: var(--shadow-high);
 }
 
 .app-shell {
