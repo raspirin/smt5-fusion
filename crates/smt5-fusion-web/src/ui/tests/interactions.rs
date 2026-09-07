@@ -249,6 +249,166 @@ fn closing_a_mutation_popover_does_not_reset_unrelated_tree_expansion() {
     });
 }
 
+fn setup_with_expansion_tree() -> (Controller, TestWorker) {
+    fn node(path: &[u8], children: Vec<RouteTreeNodeDto>) -> RouteTreeNodeDto {
+        let acquisition = if children.is_empty() {
+            AcquisitionDto::Direct {
+                summon_level: 1,
+                target_level: 1,
+            }
+        } else {
+            AcquisitionDto::Fusion {
+                is_special: false,
+                fusion_level: 1,
+                target_level: 1,
+                materials: children.iter().map(|child| child.demon).collect(),
+            }
+        };
+        RouteTreeNodeDto {
+            path: path.to_vec(),
+            demon: DemonId(0),
+            base_level: 1,
+            final_level: 1,
+            required_skills: Vec::new(),
+            upgrade_skills: Vec::new(),
+            acquisition,
+            can_change_recipe: true,
+            children,
+        }
+    }
+
+    let (controller, worker, _) = setup();
+    let tree = node(
+        &[],
+        vec![
+            node(
+                &[0],
+                vec![node(&[0, 0], vec![node(&[0, 0, 0], Vec::new())])],
+            ),
+            node(
+                &[1],
+                vec![
+                    node(&[1, 0], Vec::new()),
+                    node(
+                        &[1, 1],
+                        vec![node(&[1, 1, 0], vec![node(&[1, 1, 0, 0], Vec::new())])],
+                    ),
+                ],
+            ),
+        ],
+    );
+    controller.select_target(Some(tree.demon));
+    controller.set_depth(4);
+    controller.search();
+    let WorkerRequest::Search { request_id, input } = request(&worker) else {
+        panic!()
+    };
+    worker.respond(WorkerResponse::SearchCompleted {
+        request_id,
+        result: SearchResultDto {
+            session_id: 1,
+            selection_revision: 0,
+            input,
+            route_count: "1".to_owned(),
+            actual_fusion_depth: 4,
+            tree: Some(tree),
+        },
+    });
+    (controller, worker)
+}
+
+#[test]
+fn changing_a_recipe_expands_its_entire_subtree_and_preserves_other_branches() {
+    for (changed, expected) in [
+        (vec![1], BTreeSet::from([vec![0]])),
+        (vec![1, 1], BTreeSet::from([vec![0]])),
+        (vec![1, 1, 0], BTreeSet::from([vec![0]])),
+        (vec![], BTreeSet::new()),
+    ] {
+        Owner::new().with(|| {
+            let (controller, worker) = setup_with_expansion_tree();
+            let state = controller.state;
+            let result = state.result.get_untracked().unwrap();
+            let mut tree = result.tree.clone().unwrap();
+            let mut collapsed = all_collapsible_paths(&tree);
+            collapsed.retain(|path| !changed.starts_with(path) || path == &changed);
+            collapsed.remove(&vec![0, 0]);
+            state.collapsed.set(collapsed.clone());
+
+            let mut node = &mut tree;
+            for &index in &changed {
+                node = &mut node.children[usize::from(index)];
+            }
+            node.children.last_mut().unwrap().demon = DemonId(1);
+            let AcquisitionDto::Fusion { materials, .. } = &mut node.acquisition else {
+                panic!()
+            };
+            *materials.last_mut().unwrap() = DemonId(1);
+
+            state.begin_options_request(55, changed.clone());
+            controller.select_option(1, false);
+            assert_eq!(state.collapsed.get_untracked(), collapsed);
+            let WorkerRequest::SelectNodeOption {
+                request_id, path, ..
+            } = request(&worker)
+            else {
+                panic!()
+            };
+            assert_eq!(path, changed);
+            assert_eq!(state.mutation_path.get_untracked(), Some(changed.clone()));
+            state.close_options();
+            worker.respond(WorkerResponse::SelectionChanged {
+                request_id,
+                snapshot: SelectionSnapshotDto {
+                    session_id: result.session_id,
+                    selection_revision: result.selection_revision + 1,
+                    actual_fusion_depth: 4,
+                    tree: tree.clone(),
+                },
+            });
+
+            assert_eq!(
+                state.result.get_untracked().unwrap().tree.as_ref(),
+                Some(&tree)
+            );
+            assert_eq!(
+                state.collapsed.get_untracked(),
+                expected,
+                "path: {changed:?}"
+            );
+            assert!(state.mutation_path.get_untracked().is_none());
+            assert!(untrack(|| state.can_edit_route()));
+        });
+    }
+}
+
+#[test]
+fn resetting_the_route_restores_expansion_defaults_from_the_root() {
+    Owner::new().with(|| {
+        let (controller, worker) = setup_with_expansion_tree();
+        let state = controller.state;
+        let defaults = BTreeSet::from([vec![0, 0], vec![1, 1], vec![1, 1, 0]]);
+        assert_eq!(state.collapsed.get_untracked(), defaults);
+        state.collapsed.set(BTreeSet::from([vec![0], vec![1]]));
+        controller.reset_default();
+        let WorkerRequest::ResetToDefault { request_id, .. } = request(&worker) else {
+            panic!()
+        };
+        let result = state.result.get_untracked().unwrap();
+        worker.respond(WorkerResponse::SelectionChanged {
+            request_id,
+            snapshot: SelectionSnapshotDto {
+                session_id: result.session_id,
+                selection_revision: result.selection_revision + 1,
+                actual_fusion_depth: result.actual_fusion_depth,
+                tree: result.tree.clone().unwrap(),
+            },
+        });
+        assert_eq!(state.collapsed.get_untracked(), defaults);
+        assert!(untrack(|| state.can_edit_route()));
+    });
+}
+
 #[test]
 fn clearing_a_running_search_terminates_the_old_worker_and_rejects_all_its_callbacks() {
     Owner::new().with(|| {

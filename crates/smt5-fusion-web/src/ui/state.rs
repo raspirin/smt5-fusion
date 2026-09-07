@@ -372,17 +372,11 @@ impl AppState {
     }
 
     fn update_collapsed(self, tree: Option<&RouteTreeNodeDto>, changed_path: Option<&[u8]>) {
-        let defaults = default_collapsed(tree);
         match changed_path {
             Some(changed) => self.collapsed.update(|collapsed| {
                 collapsed.retain(|path| !path.starts_with(changed));
-                collapsed.extend(
-                    defaults
-                        .into_iter()
-                        .filter(|path| path.starts_with(changed)),
-                );
             }),
-            None => self.collapsed.set(defaults),
+            None => self.collapsed.set(default_collapsed(tree)),
         }
     }
 
