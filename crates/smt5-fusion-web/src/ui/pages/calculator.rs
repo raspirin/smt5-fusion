@@ -16,18 +16,18 @@ pub fn App() -> impl IntoView {
     controller.start_worker();
 
     view! {
-        <a class="skip-link" href="#main-content">
+        <a class="skip-link" href="#main-content" inert=move || state.skill_picker_open.get()>
             {move || i18n.text(Message::SkipToMain)}
         </a>
         <div class="app-shell">
-            <header class="site-header">
+            <header class="site-header" inert=move || state.skill_picker_open.get()>
                 <div class="site-title">
                     <span class="title-ornament" aria-hidden="true"></span>
                     <h1>{move || i18n.text(Message::AppTitle)}</h1>
                 </div>
                 <LanguageSelector />
             </header>
-            <main id="main-content" class="workspace">
+            <main id="main-content" class="workspace" inert=move || state.skill_picker_open.get()>
                 <SearchPanel />
                 <ResultPanel />
             </main>

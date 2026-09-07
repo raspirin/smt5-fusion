@@ -71,6 +71,7 @@ pub(super) struct AppState {
     pub(super) target_picker_open: RwSignal<bool>,
     pub(super) target_active_index: RwSignal<usize>,
     pub(super) skill_picker_open: RwSignal<bool>,
+    pub(super) skill_picker_slot: RwSignal<Option<usize>>,
     pub(super) skill_query: RwSignal<String>,
     pub(super) skill_category: RwSignal<Option<SkillCategory>>,
     pub(super) option_query: RwSignal<String>,
@@ -107,6 +108,7 @@ impl AppState {
             target_picker_open: RwSignal::new(false),
             target_active_index: RwSignal::new(0),
             skill_picker_open: RwSignal::new(false),
+            skill_picker_slot: RwSignal::new(None),
             skill_query: RwSignal::new(String::new()),
             skill_category: RwSignal::new(None),
             option_query: RwSignal::new(String::new()),
@@ -169,6 +171,7 @@ impl AppState {
 
     pub(super) fn close_skill_picker(self) {
         self.skill_picker_open.set(false);
+        self.skill_picker_slot.set(None);
         self.skill_query.set(String::new());
         self.skill_category.set(None);
     }
@@ -757,7 +760,10 @@ impl Controller {
         if untrack(|| self.state.can_edit_skills())
             && (self.state.required_skills.get_untracked().len()..SKILL_CAPACITY).contains(&slot)
         {
-            self.state.skill_picker_open.set(true);
+            batch(|| {
+                self.state.skill_picker_slot.set(Some(slot));
+                self.state.skill_picker_open.set(true);
+            });
         }
     }
 

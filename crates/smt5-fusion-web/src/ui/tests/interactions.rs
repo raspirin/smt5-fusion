@@ -386,6 +386,7 @@ fn persisted_skills_cannot_be_edited_until_catalog_is_ready() {
         assert!(untrack(|| state.can_edit_skills()));
         controller.open_skill_picker(1);
         assert!(state.skill_picker_open.get_untracked());
+        assert_eq!(state.skill_picker_slot.get_untracked(), Some(1));
     });
 }
 
@@ -407,6 +408,7 @@ fn target_changes_and_dlc_invalidation_close_the_skill_dialog_and_reset_filters(
         controller.set_dlc(DemonContent::KonohanaSakuyaDlc, false);
         assert!(state.target.get_untracked().is_none());
         assert!(!state.skill_picker_open.get_untracked());
+        assert!(state.skill_picker_slot.get_untracked().is_none());
         assert!(state.required_skills.get_untracked().is_empty());
     });
 }

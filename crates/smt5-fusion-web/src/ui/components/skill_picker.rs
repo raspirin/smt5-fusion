@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 use crate::{
     i18n::{Message, skill_category_slug},
@@ -6,6 +7,7 @@ use crate::{
 };
 
 use super::super::{
+    events::{active_element, restore_focus, trap_tab},
     selectors::{category_code, category_from_code, filtered_skills, skill_categories},
     state::Controller,
 };
@@ -13,9 +15,37 @@ use super::super::{
 #[component]
 pub(crate) fn SkillPicker() -> impl IntoView {
     let state = expect_context::<Controller>().state;
-    let i18n = state.i18n;
     view! {
         <Show when=move || state.skill_picker_open.get() && state.can_edit_skills()>
+            <SkillPickerDialog />
+        </Show>
+    }
+}
+
+#[component]
+fn SkillPickerDialog() -> impl IntoView {
+    let state = expect_context::<Controller>().state;
+    let i18n = state.i18n;
+    let return_slot = state.skill_picker_slot.get_untracked();
+    let input_ref = NodeRef::<leptos::html::Input>::new();
+    input_ref.on_load(|input| {
+        let _ = input.focus();
+    });
+    on_cleanup(move || {
+        leptos::leptos_dom::helpers::queue_microtask(move || {
+            if active_element().is_none_or(|element| element.tag_name() == "BODY") {
+                let target = return_slot.and_then(|slot| {
+                    web_sys::window()?
+                        .document()?
+                        .get_element_by_id(&format!("skill-slot-{slot}"))?
+                        .dyn_into()
+                        .ok()
+                });
+                restore_focus(target);
+            }
+        });
+    });
+    view! {
             <div
                 class="modal-backdrop"
                 role="presentation"
@@ -29,7 +59,11 @@ pub(crate) fn SkillPicker() -> impl IntoView {
                     on:click=move |event: web_sys::MouseEvent| event.stop_propagation()
                     on:keydown=move |event: web_sys::KeyboardEvent| {
                         if event.key() == "Escape" {
+                            event.prevent_default();
+                            event.stop_propagation();
                             state.close_skill_picker();
+                        } else {
+                            trap_tab(&event);
                         }
                     }
                 >
@@ -48,7 +82,7 @@ pub(crate) fn SkillPicker() -> impl IntoView {
                         <input
                             class="text-input"
                             type="search"
-                            autofocus=true
+                            node_ref=input_ref
                             placeholder=move || i18n.text(Message::SkillSearch)
                             prop:value=move || state.skill_query.get()
                             on:input=move |event| state.skill_query.set(event_target_value(&event))
@@ -81,7 +115,6 @@ pub(crate) fn SkillPicker() -> impl IntoView {
                     </div>
                 </section>
             </div>
-        </Show>
     }
 }
 

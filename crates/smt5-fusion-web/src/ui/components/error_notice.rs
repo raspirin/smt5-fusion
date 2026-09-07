@@ -10,7 +10,7 @@ pub(crate) fn ErrorNotice() -> impl IntoView {
     let i18n = state.i18n;
     view! {
         <Show when=move || state.error.get().is_some()>
-            <div class="error-notice" role="alert">
+            <div class="error-notice" role="alert" inert=move || state.skill_picker_open.get()>
                 <div class="error-content">
                     <div class="error-title">{move || i18n.text(Message::ErrorTitle)}</div>
                     <p class="error-message">{move || {

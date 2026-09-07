@@ -7,7 +7,7 @@ use crate::{
 
 use super::{
     super::{
-        events::focus_moved_outside,
+        events::{active_element, focus_moved_outside, restore_focus},
         selectors::{demon, filtered_options, source_active_descendant},
         state::Controller,
     },
@@ -24,6 +24,11 @@ pub(super) fn NodeOptionsPopover(
     let state = controller.state;
     let i18n = state.i18n;
     let keyboard_controller = controller.clone();
+    let return_focus = StoredValue::new_local(active_element());
+    let input_ref = NodeRef::<leptos::html::Input>::new();
+    input_ref.on_load(|input| {
+        let _ = input.focus();
+    });
     view! {
         <section
             class="node-options-popover"
@@ -38,7 +43,11 @@ pub(super) fn NodeOptionsPopover(
             }
             on:keydown=move |event: web_sys::KeyboardEvent| {
                 if event.key() == "Escape" {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    let target = return_focus.get_value();
                     state.close_options();
+                    restore_focus(target);
                 }
             }
         >
@@ -52,7 +61,11 @@ pub(super) fn NodeOptionsPopover(
                     class="icon-button"
                     type="button"
                     aria-label=move || i18n.text(Message::Close)
-                    on:click=move |_| state.close_options()
+                    on:click=move |_| {
+                        let target = return_focus.get_value();
+                        state.close_options();
+                        restore_focus(target);
+                    }
                 >
                     "×"
                 </button>
@@ -62,7 +75,7 @@ pub(super) fn NodeOptionsPopover(
                 type="search"
                 role="combobox"
                 autocomplete="off"
-                autofocus=true
+                node_ref=input_ref
                 aria-autocomplete="list"
                 aria-controls="node-option-list"
                 aria-expanded="true"

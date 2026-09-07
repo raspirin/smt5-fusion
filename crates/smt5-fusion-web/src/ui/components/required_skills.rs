@@ -41,7 +41,7 @@ fn SkillSlot(index: usize) -> impl IntoView {
                         .unwrap_or_else(|| "skill-slot filled".to_owned());
                     let localized_skill = i18n.skill_name(skill_id);
                     view! {
-                        <div class=slot_class>
+                        <div class=slot_class id=format!("skill-slot-{index}") tabindex="-1">
                             <div>
                                 <span class="slot-number">{format!("{:02}", index + 1)}</span>
                                 <strong>{localized_skill.clone()}</strong>
@@ -70,6 +70,7 @@ fn SkillSlot(index: usize) -> impl IntoView {
                     <button
                         type="button"
                         class="skill-slot empty"
+                        id=format!("skill-slot-{index}")
                         disabled=move || !state.can_edit_skills()
                         on:click={
                             let controller = open_controller.clone();

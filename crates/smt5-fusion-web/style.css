@@ -95,7 +95,8 @@ input:disabled {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-a:focus-visible {
+a:focus-visible,
+.skill-slot:focus-visible {
     outline: 3px solid color-mix(in srgb, var(--focus) 55%, transparent);
     outline-offset: 2px;
 }
