@@ -91,6 +91,10 @@ pub enum Message {
     PageTitle,
     PageDescription,
     LanguageSelector,
+    ThemeSelector,
+    ThemeAuto,
+    ThemeDark,
+    ThemeLight,
     Calculator,
     DlcSettings,
     TargetDemon,
@@ -221,12 +225,16 @@ pub enum Message {
 }
 
 impl Message {
-    pub const ALL: [Self; 132] = [
+    pub const ALL: [Self; 136] = [
         Self::SkipToMain,
         Self::AppTitle,
         Self::PageTitle,
         Self::PageDescription,
         Self::LanguageSelector,
+        Self::ThemeSelector,
+        Self::ThemeAuto,
+        Self::ThemeDark,
+        Self::ThemeLight,
         Self::Calculator,
         Self::DlcSettings,
         Self::TargetDemon,
@@ -363,6 +371,10 @@ impl Message {
             Self::PageTitle => "page-title",
             Self::PageDescription => "page-description",
             Self::LanguageSelector => "language-selector",
+            Self::ThemeSelector => "theme-selector",
+            Self::ThemeAuto => "theme-auto",
+            Self::ThemeDark => "theme-dark",
+            Self::ThemeLight => "theme-light",
             Self::Calculator => "calculator",
             Self::DlcSettings => "dlc-settings",
             Self::TargetDemon => "target-demon",

@@ -5,6 +5,7 @@ use smt5_fusion_core::dataset::{demon_ids, skill_ids};
 use super::super::{
     selectors::{filtered_options, source_active_descendant},
     state::WorkerStatus,
+    theme::{ThemePreference, ThemeState},
     worker_client::TestWorker,
 };
 use crate::protocol::{DemonContent, SelectionSnapshotDto, WorkerRequest};
@@ -33,6 +34,63 @@ fn calculate(controller: &Controller, worker: &TestWorker, service: &mut WorkerS
     worker.respond(service.handle(request(worker)));
     assert!(controller.state.result.get_untracked().is_some());
     assert!(controller.state.session_available.get_untracked());
+}
+
+#[test]
+fn theme_changes_preserve_running_searches_results_and_expansion() {
+    Owner::new().with(|| {
+        let (controller, worker, mut service) = setup();
+        let state = controller.state;
+        let theme = ThemeState::new(ThemePreference::Auto, false);
+        calculate(&controller, &worker, &mut service);
+        let previous = state.result.get_untracked().unwrap();
+        let collapsed = BTreeSet::from([vec![0], vec![1, 0]]);
+        state.collapsed.set(collapsed.clone());
+        let input = state.current_input();
+        controller.search();
+        let pending = request(&worker);
+        let active_search = state.active_search.get_untracked();
+        let generation = state.worker_generation.get_untracked();
+
+        for preference in ThemePreference::ALL {
+            theme.set_preference(preference);
+            for dark in [true, false] {
+                theme.set_system_dark(dark);
+                assert!(Arc::ptr_eq(
+                    &state.result.get_untracked().unwrap(),
+                    &previous
+                ));
+                assert_eq!(state.collapsed.get_untracked(), collapsed);
+                assert_eq!(state.current_input(), input);
+                assert_eq!(state.active_search.get_untracked(), active_search);
+                assert_eq!(state.worker_generation.get_untracked(), generation);
+                assert!(state.searching.get_untracked());
+                assert!(!worker.terminated());
+                assert!(worker.take_requests().is_empty());
+            }
+        }
+        worker.respond(service.handle(pending));
+        assert!(!state.searching.get_untracked());
+        assert!(untrack(|| state.can_edit_route()));
+    });
+}
+
+#[test]
+fn language_changes_and_clearing_the_form_preserve_the_theme() {
+    Owner::new().with(|| {
+        let (controller, worker, _) = setup();
+        let theme = ThemeState::new(ThemePreference::Auto, true);
+        theme.set_preference(ThemePreference::Light);
+        for locale in Locale::ALL {
+            controller.set_locale(locale);
+            controller.clear_form();
+            assert_eq!(untrack(|| theme.preference()), ThemePreference::Light);
+            assert_eq!(theme.resolved(), "light");
+            assert_eq!(controller.state.i18n.locale_untracked(), locale);
+            assert!(!worker.terminated());
+            assert!(worker.take_requests().is_empty());
+        }
+    });
 }
 
 #[test]

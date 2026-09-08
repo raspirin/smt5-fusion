@@ -11,9 +11,11 @@ mod search_panel;
 mod skill_picker;
 mod source_picker;
 mod target_picker;
+mod theme_switcher;
 
 pub(super) use error_notice::ErrorNotice;
 pub(super) use language_selector::LanguageSelector;
 pub(super) use result_panel::ResultPanel;
 pub(super) use search_panel::SearchPanel;
 pub(super) use skill_picker::SkillPicker;
+pub(super) use theme_switcher::ThemeSwitcher;
