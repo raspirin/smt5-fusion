@@ -4,5 +4,6 @@ members = [
     "crates/smt5-fusion-core",
     "crates/smt5-fusion-web",
     "tools/android-core-runner",
+    "tools/web-config-sync",
 ]
 default-members = ["crates/smt5-fusion-core"]

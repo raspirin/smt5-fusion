@@ -29,7 +29,7 @@ use super::{
 };
 
 #[cfg(target_arch = "wasm32")]
-const STORAGE_KEY: &str = "smt5-fusion-web:search-form:v1";
+use crate::build_info::STORAGE_KEYS;
 const DEFAULT_FUSION_DEPTH: u32 = 2;
 #[cfg(target_arch = "wasm32")]
 const LOADING_INDICATOR_DELAY_MS: i32 = 100;
@@ -917,7 +917,7 @@ impl AppError {
 pub(super) fn load_form() -> PersistedForm {
     web_sys::window()
         .and_then(|window| window.local_storage().ok().flatten())
-        .and_then(|storage| storage.get_item(STORAGE_KEY).ok().flatten())
+        .and_then(|storage| storage.get_item(STORAGE_KEYS.form).ok().flatten())
         .and_then(|value| serde_json::from_str::<PersistedForm>(&value).ok())
         .filter(|form| form.version == 1 && form.max_depth <= MAX_FUSION_DEPTH)
         .unwrap_or_default()
@@ -935,7 +935,7 @@ fn save_form(form: PersistedForm) {
         return;
     };
     if let Ok(value) = serde_json::to_string(&form) {
-        let _ = storage.set_item(STORAGE_KEY, &value);
+        let _ = storage.set_item(STORAGE_KEYS.form, &value);
     }
 }
 

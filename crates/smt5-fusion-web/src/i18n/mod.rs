@@ -12,7 +12,7 @@ const ZH_CN_SOURCE: &str = include_str!("../../locales/zh-CN.ftl");
 const ZH_TW_SOURCE: &str = include_str!("../../locales/zh-TW.ftl");
 
 #[cfg(target_arch = "wasm32")]
-const LOCALE_STORAGE_KEY: &str = "smt5-fusion-web:locale:v1";
+use crate::build_info::STORAGE_KEYS;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Locale {
@@ -88,6 +88,7 @@ impl Locale {
 pub enum Message {
     SkipToMain,
     AppTitle,
+    PreviewLabel,
     PageTitle,
     PageDescription,
     LanguageSelector,
@@ -225,9 +226,10 @@ pub enum Message {
 }
 
 impl Message {
-    pub const ALL: [Self; 136] = [
+    pub const ALL: [Self; 137] = [
         Self::SkipToMain,
         Self::AppTitle,
+        Self::PreviewLabel,
         Self::PageTitle,
         Self::PageDescription,
         Self::LanguageSelector,
@@ -368,6 +370,7 @@ impl Message {
         match self {
             Self::SkipToMain => "skip-to-main",
             Self::AppTitle => "app-title",
+            Self::PreviewLabel => "preview-label",
             Self::PageTitle => "page-title",
             Self::PageDescription => "page-description",
             Self::LanguageSelector => "language-selector",
@@ -842,7 +845,7 @@ pub fn initial_locale() -> Locale {
     if let Some(stored) = window
         .as_ref()
         .and_then(|window| window.local_storage().ok().flatten())
-        .and_then(|storage| storage.get_item(LOCALE_STORAGE_KEY).ok().flatten())
+        .and_then(|storage| storage.get_item(STORAGE_KEYS.locale).ok().flatten())
         .and_then(|tag| Locale::from_tag(&tag))
     {
         return stored;
@@ -878,7 +881,7 @@ fn save_locale(locale: Locale) {
     else {
         return;
     };
-    let _ = storage.set_item(LOCALE_STORAGE_KEY, locale.tag());
+    let _ = storage.set_item(STORAGE_KEYS.locale, locale.tag());
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -890,6 +893,23 @@ mod tests {
 
     use super::*;
     use crate::protocol::Element;
+
+    #[test]
+    fn accessible_preview_labels_do_not_change_the_standard_page_titles() {
+        for (locale, label, title) in [
+            (Locale::ZhCn, "预览版", "SMT5V 合体计算器"),
+            (Locale::ZhTw, "預覽版", "SMT5V 反向合體計算器"),
+            (Locale::EnUs, "Preview", "SMT5V Fusion Calculator"),
+            (
+                Locale::JaJp,
+                "プレビュー版",
+                "SMT5V 逆引き合体シミュレーター",
+            ),
+        ] {
+            assert_eq!(format_message(locale, Message::PreviewLabel, None), label);
+            assert_eq!(format_message(locale, Message::PageTitle, None), title);
+        }
+    }
 
     #[test]
     fn every_locale_contains_exactly_the_supported_messages() {

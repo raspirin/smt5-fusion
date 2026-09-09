@@ -1,5 +1,6 @@
 skip-to-main = Skip to main content
 app-title = Shin Megami Tensei V: Vengeance Fusion Calculator
+preview-label = Preview
 page-title = SMT5V Fusion Calculator
 page-description = A browser-based reverse fusion route calculator for Shin Megami Tensei V: Vengeance
 language-selector = Language

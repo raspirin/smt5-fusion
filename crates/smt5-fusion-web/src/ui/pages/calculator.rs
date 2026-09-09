@@ -10,6 +10,21 @@ use super::super::{
     theme::ThemeState,
 };
 
+fn preview_tape(i18n: I18n) -> impl IntoView {
+    #[cfg(feature = "preview")]
+    {
+        view! {
+            <span
+                class="preview-tape"
+                role="img"
+                aria-label=move || i18n.text(Message::PreviewLabel)
+            ></span>
+        }
+    }
+    #[cfg(not(feature = "preview"))]
+    let _ = i18n;
+}
+
 #[component]
 pub fn App() -> impl IntoView {
     provide_context(ThemeState::load());
@@ -34,6 +49,7 @@ pub fn App() -> impl IntoView {
                     <ThemeSwitcher />
                 </div>
             </header>
+            {preview_tape(i18n)}
             <main id="main-content" class="workspace" inert=move || state.skill_picker_open.get()>
                 <SearchPanel />
                 <ResultPanel />

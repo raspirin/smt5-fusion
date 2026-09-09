@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [features]
-default = []
+default = ["ui"]
 ui = [
     "dep:fluent-bundle",
     "dep:js-sys",
@@ -18,6 +18,7 @@ ui = [
     "web-sys/MediaQueryListEvent",
 ]
 worker = ["dep:js-sys"]
+preview = ["ui"]
 
 [dependencies]
 console_error_panic_hook = "0.1.7"

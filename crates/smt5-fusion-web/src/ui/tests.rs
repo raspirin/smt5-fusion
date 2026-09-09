@@ -21,6 +21,7 @@ use crate::service::WorkerService;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod interactions;
+mod styles;
 
 #[test]
 fn big_counts_are_grouped_without_losing_precision() {

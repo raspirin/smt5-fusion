@@ -1,5 +1,6 @@
 skip-to-main = 跳到主要内容
 app-title = 真·女神转生 V Vengeance 合体计算器
+preview-label = 预览版
 page-title = SMT5V 合体计算器
 page-description = 真·女神转生 V Vengeance 浏览器端反向合体路线计算器
 language-selector = 语言

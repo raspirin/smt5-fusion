@@ -1,5 +1,6 @@
 skip-to-main = 跳至主要內容
 app-title = 真・女神轉生Ⅴ Vengeance 反向合體計算器
+preview-label = 預覽版
 page-title = SMT5V 反向合體計算器
 page-description = 真・女神轉生Ⅴ Vengeance 瀏覽器版反向合體路線計算器
 language-selector = 語言

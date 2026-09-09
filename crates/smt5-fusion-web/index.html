@@ -2,6 +2,8 @@
 <html lang="zh-CN">
     <head>
         <meta charset="utf-8" />
+        <meta name="smt5-build-channel" content="production" />
+        <meta name="smt5-build-id" content="local" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="theme-color" content="#332f2b" media="(prefers-color-scheme: light)" data-theme="light" />
         <meta name="theme-color" content="#1c1b19" media="(prefers-color-scheme: dark)" data-theme="dark" />
@@ -43,7 +45,6 @@
             href="Cargo.toml"
             data-bin="smt5-fusion-web"
             data-type="main"
-            data-cargo-features="ui"
             data-bindgen-target="web"
             data-wasm-opt="z"
         />
@@ -54,6 +55,7 @@
             data-bin="smt5-fusion-worker"
             data-type="worker"
             data-cargo-features="worker"
+            data-cargo-no-default-features
             data-bindgen-target="web"
             data-loader-shim
             data-wasm-opt="2"

@@ -3,7 +3,7 @@ use leptos::prelude::*;
 use crate::i18n::Message;
 
 #[cfg(target_arch = "wasm32")]
-const THEME_STORAGE_KEY: &str = "smt5-fusion-web:theme:v1";
+use crate::build_info::STORAGE_KEYS;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum ThemePreference {
@@ -271,7 +271,7 @@ mod browser {
         if let Some(storage) =
             web_sys::window().and_then(|window| window.local_storage().ok().flatten())
         {
-            let _ = storage.set_item(THEME_STORAGE_KEY, preference.as_str());
+            let _ = storage.set_item(STORAGE_KEYS.theme, preference.as_str());
         }
     }
 }

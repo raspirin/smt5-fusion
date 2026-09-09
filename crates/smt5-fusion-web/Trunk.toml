@@ -3,6 +3,11 @@ target = "index.html"
 dist = "../../dist"
 public_url = "./"
 
+[[hooks]]
+stage = "post_build"
+command = "cargo"
+command_arguments = ["run", "--quiet", "--locked", "-p", "web-config-sync"]
+
 [serve]
 addresses = ["127.0.0.1"]
 port = 8080

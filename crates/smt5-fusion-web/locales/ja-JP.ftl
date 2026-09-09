@@ -1,5 +1,6 @@
 skip-to-main = メインコンテンツへ移動
 app-title = 真・女神転生Ⅴ Vengeance 逆引き合体シミュレーター
+preview-label = プレビュー版
 page-title = SMT5V 逆引き合体シミュレーター
 page-description = 『真・女神転生Ⅴ Vengeance』で、作成したい悪魔から素材と合体ルートを逆引きできるブラウザ向けシミュレーター
 language-selector = 言語
