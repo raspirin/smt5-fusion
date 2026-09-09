@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">霜精圆脸图标</title>
+  <desc id="description">近黑底色上，白色圆脸与向右下错开的红色轮廓相叠，保留椭圆眼睛、大笑嘴和两枚小尖牙。</desc>
+  <rect width="512" height="512" rx="108" fill="#101014"/>
+  <ellipse cx="274" cy="274" rx="190" ry="182" fill="#E60029"/>
+  <g transform="translate(-18 -18)">
+    <ellipse cx="256" cy="256" rx="190" ry="182" fill="#FFFFFF"/>
+    <ellipse cx="204" cy="168" rx="22" ry="34" fill="#E60029"/>
+    <ellipse cx="308" cy="168" rx="22" ry="34" fill="#E60029"/>
+    <path fill="#E60029" d="M 124 244 L 388 244 C 388 316 333 368 256 368 C 179 368 124 316 124 244 Z"/>
+    <path fill="#FFFFFF" d="M 182 244 L 214 244 L 198 282 Z M 298 244 L 330 244 L 314 282 Z"/>
+  </g>
+</svg>
