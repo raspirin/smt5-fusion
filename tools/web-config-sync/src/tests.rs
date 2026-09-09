@@ -8,6 +8,24 @@ use super::*;
 const HTML: &str = include_str!("../../../crates/smt5-fusion-web/index.html");
 const PRODUCTION: &str = "production\0smt5-fusion-web:theme:v1\0local";
 const PREVIEW: &str = "preview\0smt5-fusion-web:preview:theme:v1\0test-build";
+const WORKER_BYTES: [&[u8]; 3] = [
+    b"export default async function init() { return fetch(new URL('smt5-fusion-worker_bg.wasm', import.meta.url)); }\n",
+    b"\0asm\x01\0\0\0",
+    b"import init from './smt5-fusion-worker.js';await init();",
+];
+const WORKER_URL: &str = "./worker/8859d4adf1884c51/smt5-fusion-worker_loader.js";
+
+fn write_worker(directory: &Path) {
+    for (name, bytes) in worker::FILES.into_iter().zip(WORKER_BYTES) {
+        fs::write(directory.join(name), bytes).unwrap();
+    }
+}
+
+fn assert_worker_unmoved(directory: &Path) {
+    for (name, bytes) in worker::FILES.into_iter().zip(WORKER_BYTES) {
+        assert_eq!(fs::read(directory.join(name)).unwrap(), bytes);
+    }
+}
 
 fn length(mut value: usize) -> Vec<u8> {
     let mut bytes = Vec::new();
@@ -166,44 +184,209 @@ impl Drop for Directory {
 }
 
 #[test]
-fn the_hook_modifies_only_html_and_accepts_hashed_or_unhashed_ui_names() {
+fn the_hook_versions_worker_assets_and_preserves_all_asset_bytes() {
     for name in [
         "smt5-fusion-web_bg.wasm",
         "smt5-fusion-web-0123456789abcdef_bg.wasm",
     ] {
-        let directory = Directory::new();
-        fs::write(directory.0.join("index.html"), HTML).unwrap();
-        let bytes = wasm(PREVIEW);
-        fs::write(directory.0.join(name), &bytes).unwrap();
-        fs::write(directory.0.join("smt5-fusion-worker_bg.wasm"), b"untouched").unwrap();
-        process_html(&directory.0).unwrap();
-        assert_eq!(
-            fs::read_to_string(directory.0.join("index.html")).unwrap(),
-            patch_html(HTML, PREVIEW).unwrap()
-        );
-        assert_eq!(fs::read(directory.0.join(name)).unwrap(), bytes);
-        assert_eq!(
-            fs::read(directory.0.join("smt5-fusion-worker_bg.wasm")).unwrap(),
-            b"untouched"
-        );
+        for config in [PRODUCTION, PREVIEW] {
+            let directory = Directory::new();
+            fs::write(directory.0.join("index.html"), HTML).unwrap();
+            let bytes = wasm(config);
+            fs::write(directory.0.join(name), &bytes).unwrap();
+            fs::write(directory.0.join("style.css"), b"body {}").unwrap();
+            write_worker(&directory.0);
+            process(&directory.0).unwrap();
+            assert_eq!(
+                fs::read_to_string(directory.0.join("index.html")).unwrap(),
+                set_meta(
+                    &patch_html(HTML, config).unwrap(),
+                    "smt5-worker-url",
+                    WORKER_URL,
+                )
+                .unwrap()
+            );
+            assert_eq!(fs::read(directory.0.join(name)).unwrap(), bytes);
+            assert_eq!(fs::read(directory.0.join("style.css")).unwrap(), b"body {}");
+            let entry = directory.0.join(WORKER_URL.strip_prefix("./").unwrap());
+            for (name, bytes) in worker::FILES.into_iter().zip(WORKER_BYTES) {
+                assert!(!directory.0.join(name).exists());
+                assert_eq!(fs::read(entry.parent().unwrap().join(name)).unwrap(), bytes);
+            }
+            assert_eq!(fs::read_dir(directory.0.join("worker")).unwrap().count(), 1);
+            assert_eq!(fs::read_dir(entry.parent().unwrap()).unwrap().count(), 3);
+        }
     }
 }
 
 #[test]
-fn missing_ambiguous_or_invalid_ui_assets_leave_html_unchanged() {
+fn missing_ambiguous_or_invalid_ui_assets_leave_staging_unchanged() {
     let directory = Directory::new();
     let html = directory.0.join("index.html");
     fs::write(&html, HTML).unwrap();
-    assert!(process_html(&directory.0).is_err());
+    write_worker(&directory.0);
+    assert!(process(&directory.0).is_err());
     let ui = directory.0.join("smt5-fusion-web_bg.wasm");
     fs::write(&ui, b"invalid").unwrap();
-    assert!(process_html(&directory.0).is_err());
+    assert!(process(&directory.0).is_err());
     fs::write(&ui, wasm(PREVIEW)).unwrap();
     fs::write(
         directory.0.join("smt5-fusion-web-0123456789abcdef_bg.wasm"),
         wasm(PRODUCTION),
     )
     .unwrap();
-    assert!(process_html(&directory.0).is_err());
+    assert!(process(&directory.0).is_err());
     assert_eq!(fs::read_to_string(&html).unwrap(), HTML);
+    assert_worker_unmoved(&directory.0);
+    assert!(!directory.0.join("worker").exists());
+}
+
+#[test]
+fn worker_fingerprint_is_independent_of_ui_and_file_creation_order() {
+    for config in [PRODUCTION, PREVIEW] {
+        let directory = Directory::new();
+        fs::write(directory.0.join("index.html"), config).unwrap();
+        fs::write(directory.0.join("smt5-fusion-web_bg.wasm"), wasm(config)).unwrap();
+        fs::write(directory.0.join("favicon.svg"), config).unwrap();
+        for (name, bytes) in worker::FILES.into_iter().zip(WORKER_BYTES).rev() {
+            fs::write(directory.0.join(name), bytes).unwrap();
+        }
+        for _ in 0..2 {
+            assert_eq!(
+                WorkerAssets::read(&directory.0).unwrap().entry_url(),
+                WORKER_URL
+            );
+        }
+        assert_worker_unmoved(&directory.0);
+    }
+}
+
+#[test]
+fn changing_any_worker_file_changes_the_fingerprint() {
+    for (name, bytes) in worker::FILES.into_iter().zip(WORKER_BYTES) {
+        let directory = Directory::new();
+        write_worker(&directory.0);
+        let mut changed = bytes.to_vec();
+        changed[0] ^= 1;
+        fs::write(directory.0.join(name), changed).unwrap();
+        assert_ne!(
+            WorkerAssets::read(&directory.0).unwrap().entry_url(),
+            WORKER_URL,
+            "Ignored changes to {name}"
+        );
+    }
+}
+
+#[test]
+fn worker_fingerprint_encodes_file_boundaries() {
+    let directory = Directory::new();
+    write_worker(&directory.0);
+    fs::write(directory.0.join(worker::FILES[0]), b"ab").unwrap();
+    fs::write(directory.0.join(worker::FILES[1]), b"c").unwrap();
+    let first = WorkerAssets::read(&directory.0).unwrap().entry_url();
+    fs::write(directory.0.join(worker::FILES[0]), b"a").unwrap();
+    fs::write(directory.0.join(worker::FILES[1]), b"bc").unwrap();
+    assert_ne!(WorkerAssets::read(&directory.0).unwrap().entry_url(), first);
+}
+
+#[test]
+fn missing_or_empty_worker_assets_leave_staging_unchanged() {
+    for name in worker::FILES {
+        for missing in [true, false] {
+            let directory = Directory::new();
+            let html = directory.0.join("index.html");
+            fs::write(&html, HTML).unwrap();
+            fs::write(
+                directory.0.join("smt5-fusion-web_bg.wasm"),
+                wasm(PRODUCTION),
+            )
+            .unwrap();
+            write_worker(&directory.0);
+            if missing {
+                fs::remove_file(directory.0.join(name)).unwrap();
+            } else {
+                fs::write(directory.0.join(name), b"").unwrap();
+            }
+            assert!(
+                process(&directory.0)
+                    .unwrap_err()
+                    .to_string()
+                    .contains(name)
+            );
+            assert_eq!(fs::read_to_string(&html).unwrap(), HTML);
+            assert!(!directory.0.join("worker").exists());
+            for (other, bytes) in worker::FILES.into_iter().zip(WORKER_BYTES) {
+                if other != name {
+                    assert_eq!(fs::read(directory.0.join(other)).unwrap(), bytes);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn invalid_worker_metadata_leaves_staging_unchanged() {
+    for source in [
+        HTML.replace("smt5-worker-url", "removed"),
+        HTML.replace("smt5-worker-url", "smt5-worker-url smt5-worker-url"),
+    ] {
+        let directory = Directory::new();
+        let html = directory.0.join("index.html");
+        fs::write(&html, &source).unwrap();
+        fs::write(
+            directory.0.join("smt5-fusion-web_bg.wasm"),
+            wasm(PRODUCTION),
+        )
+        .unwrap();
+        write_worker(&directory.0);
+        assert!(process(&directory.0).is_err());
+        assert_eq!(fs::read_to_string(&html).unwrap(), source);
+        assert_worker_unmoved(&directory.0);
+        assert!(!directory.0.join("worker").exists());
+    }
+}
+
+#[test]
+fn minified_worker_metadata_is_supported() {
+    let directory = Directory::new();
+    let html = directory.0.join("index.html");
+    fs::write(
+        &html,
+        HTML.replace(
+            "<meta name=\"smt5-worker-url\" content=\"\" />",
+            "<meta name=smt5-worker-url content=\"\">",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        directory.0.join("smt5-fusion-web_bg.wasm"),
+        wasm(PRODUCTION),
+    )
+    .unwrap();
+    write_worker(&directory.0);
+    process(&directory.0).unwrap();
+    assert_eq!(
+        fs::read_to_string(&html).unwrap(),
+        set_meta(HTML, "smt5-worker-url", WORKER_URL).unwrap()
+    );
+}
+
+#[test]
+fn existing_worker_destination_is_not_overwritten() {
+    let directory = Directory::new();
+    let html = directory.0.join("index.html");
+    fs::write(&html, HTML).unwrap();
+    fs::write(
+        directory.0.join("smt5-fusion-web_bg.wasm"),
+        wasm(PRODUCTION),
+    )
+    .unwrap();
+    write_worker(&directory.0);
+    let entry = directory.0.join(WORKER_URL.strip_prefix("./").unwrap());
+    fs::create_dir_all(entry.parent().unwrap()).unwrap();
+    fs::write(&entry, b"existing asset").unwrap();
+    assert!(process(&directory.0).is_err());
+    assert_eq!(fs::read_to_string(&html).unwrap(), HTML);
+    assert_eq!(fs::read(entry).unwrap(), b"existing asset");
+    assert_worker_unmoved(&directory.0);
 }

@@ -18,10 +18,18 @@ impl WorkerClient {
         use wasm_bindgen::JsCast;
         use web_sys::{WorkerOptions, WorkerType};
 
+        let document = web_sys::window()
+            .and_then(|window| window.document())
+            .ok_or("Missing document for Worker startup")?;
+        let url = document
+            .query_selector("meta[name='smt5-worker-url']")
+            .map_err(js_error)?
+            .and_then(|meta| meta.get_attribute("content"))
+            .filter(|url| !url.trim().is_empty())
+            .ok_or("Missing Worker URL in startup HTML")?;
         let options = WorkerOptions::new();
         options.set_type(WorkerType::Module);
-        let worker = web_sys::Worker::new_with_options("./smt5-fusion-worker_loader.js", &options)
-            .map_err(js_error)?;
+        let worker = web_sys::Worker::new_with_options(&url, &options).map_err(js_error)?;
 
         let response_handler = Arc::clone(&on_response);
         let response_error_handler = Arc::clone(&on_error);

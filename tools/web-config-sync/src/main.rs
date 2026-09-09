@@ -1,14 +1,18 @@
 use std::{env, error::Error, fs, path::Path};
 
+use worker::WorkerAssets;
+
+mod worker;
+
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 fn main() -> Result<()> {
     let directory = env::var_os("TRUNK_STAGING_DIR")
         .ok_or("web-config-sync must be run as a Trunk post_build hook")?;
-    process_html(Path::new(&directory))
+    process(Path::new(&directory))
 }
 
-fn process_html(directory: &Path) -> Result<()> {
+fn process(directory: &Path) -> Result<()> {
     let mut ui = None;
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
@@ -24,6 +28,9 @@ fn process_html(directory: &Path) -> Result<()> {
     let config = read_config(&wasm)?;
     let path = directory.join("index.html");
     let html = patch_html(&fs::read_to_string(&path)?, config)?;
+    let worker = WorkerAssets::read(directory)?;
+    let html = set_meta(&html, "smt5-worker-url", &worker.entry_url())?;
+    worker.relocate(directory)?;
     fs::write(path, html)?;
     Ok(())
 }
