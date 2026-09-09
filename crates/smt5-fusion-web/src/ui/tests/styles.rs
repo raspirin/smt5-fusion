@@ -39,6 +39,24 @@ fn rule(selector: &str) -> Palette {
     declarations(body)
 }
 
+fn css_block(source: &'static str, selector: &str) -> &'static str {
+    let (_, body) = source
+        .split_once(&format!("{selector} {{"))
+        .unwrap_or_else(|| panic!("Missing CSS block: {selector}"));
+    let mut depth = 1;
+    for (index, ch) in body.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            _ => {}
+        }
+        if depth == 0 {
+            return &body[..index];
+        }
+    }
+    panic!("Unclosed CSS block: {selector}");
+}
+
 fn palette(dark: bool) -> Palette {
     let mut palette = rule(":root");
     if dark {
@@ -146,6 +164,28 @@ fn header_controls_share_outer_sizing_instead_of_text_height() {
     assert!(!segment.contains_key("min-height"));
     assert_eq!(segment["align-items"], "center");
     assert_eq!(segment["padding"], "0 0.6rem");
+}
+
+#[test]
+fn touch_and_narrow_sidebars_grow_with_content_instead_of_scrolling_internally() {
+    use super::super::events::TOUCH_OR_NO_HOVER_QUERY;
+
+    let desktop = rule(".search-panel");
+    assert_eq!(desktop["position"], "sticky");
+    assert_eq!(desktop["max-height"], "calc(100vh - 2rem)");
+    assert_eq!(desktop["overflow-y"], "auto");
+    assert_eq!(
+        TOUCH_OR_NO_HOVER_QUERY,
+        "(any-pointer: coarse), (hover: none)"
+    );
+    for query in [TOUCH_OR_NO_HOVER_QUERY, "(max-width: 880px)"] {
+        let media = css_block(CSS, &format!("@media {query}"));
+        let panel = declarations(css_block(media, ".search-panel"));
+        assert_eq!(panel["position"], "static");
+        assert_eq!(panel["max-height"], "none");
+        assert_eq!(panel["overflow"], "visible");
+        assert_eq!(panel["scrollbar-gutter"], "auto");
+    }
 }
 
 #[test]

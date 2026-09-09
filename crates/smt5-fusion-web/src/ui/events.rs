@@ -1,5 +1,27 @@
 use wasm_bindgen::JsCast;
 
+pub(super) const TOUCH_OR_NO_HOVER_QUERY: &str = "(any-pointer: coarse), (hover: none)";
+
+pub(super) fn focus_picker_on_open(input: &web_sys::HtmlInputElement) {
+    let touch_or_no_hover = web_sys::window()
+        .and_then(|window| window.match_media(TOUCH_OR_NO_HOVER_QUERY).ok().flatten())
+        .map(|media| media.matches());
+    let target = if allows_text_autofocus(touch_or_no_hover) {
+        Some(input.clone().unchecked_into::<web_sys::HtmlElement>())
+    } else {
+        input
+            .closest("[role='dialog']")
+            .ok()
+            .flatten()
+            .and_then(|panel| panel.dyn_into::<web_sys::HtmlElement>().ok())
+    };
+    restore_focus(target);
+}
+
+fn allows_text_autofocus(touch_or_no_hover: Option<bool>) -> bool {
+    touch_or_no_hover == Some(false)
+}
+
 pub(super) fn preserve_picker_focus(event: web_sys::MouseEvent) {
     if event.button() == 0 {
         event.prevent_default();
@@ -95,7 +117,28 @@ pub(super) fn event_checked(event: &web_sys::Event) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::tab_wrap_index;
+    use super::{allows_text_autofocus, tab_wrap_index};
+
+    #[test]
+    fn automatic_text_focus_requires_a_confirmed_non_touch_hover_environment() {
+        assert!(allows_text_autofocus(Some(false)));
+        assert!(!allows_text_autofocus(Some(true)));
+        assert!(!allows_text_autofocus(None));
+    }
+
+    #[test]
+    fn pickers_use_the_shared_focus_policy_and_have_focusable_dialog_containers() {
+        for source in [
+            include_str!("components/skill_picker.rs"),
+            include_str!("components/source_picker.rs"),
+        ] {
+            assert!(source.contains("focus_picker_on_open(&input)"));
+            assert!(source.contains("role=\"dialog\""));
+            assert!(source.contains("tabindex=\"-1\""));
+            assert!(!source.contains("input.focus()"));
+            assert!(!source.contains("autofocus"));
+        }
+    }
 
     #[test]
     fn modal_tab_navigation_wraps_without_leaving_the_dialog() {

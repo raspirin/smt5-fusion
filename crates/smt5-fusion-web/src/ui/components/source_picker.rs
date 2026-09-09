@@ -7,7 +7,10 @@ use crate::{
 
 use super::{
     super::{
-        events::{active_element, focus_moved_outside, preserve_picker_focus, restore_focus},
+        events::{
+            active_element, focus_moved_outside, focus_picker_on_open, preserve_picker_focus,
+            restore_focus,
+        },
         selectors::{demon, filtered_options, source_active_descendant},
         state::Controller,
     },
@@ -26,15 +29,14 @@ pub(super) fn NodeOptionsPopover(
     let keyboard_controller = controller.clone();
     let return_focus = StoredValue::new_local(active_element());
     let input_ref = NodeRef::<leptos::html::Input>::new();
-    input_ref.on_load(|input| {
-        let _ = input.focus();
-    });
+    input_ref.on_load(|input| focus_picker_on_open(&input));
     view! {
         <section
             class="node-options-popover"
             class:opens-upward=move || open_upward.get()
             style=move || format!("max-height: {:.0}px", max_height.get())
             role="dialog"
+            tabindex="-1"
             aria-labelledby="node-options-heading"
             on:focusout=move |event: web_sys::FocusEvent| {
                 if focus_moved_outside(&event) {

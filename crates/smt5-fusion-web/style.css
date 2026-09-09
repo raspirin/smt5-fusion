@@ -1723,6 +1723,15 @@ h3 {
     }
 }
 
+@media (any-pointer: coarse), (hover: none) {
+    .search-panel {
+        position: static;
+        max-height: none;
+        overflow: visible;
+        scrollbar-gutter: auto;
+    }
+}
+
 @media (max-width: 880px) {
     .site-header {
         min-height: 92px;
@@ -1739,6 +1748,7 @@ h3 {
         max-height: none;
         margin-bottom: 0.9rem;
         overflow: visible;
+        scrollbar-gutter: auto;
     }
 
     .result-placeholder {

@@ -7,7 +7,7 @@ use crate::{
 };
 
 use super::super::{
-    events::{active_element, restore_focus, trap_tab},
+    events::{active_element, focus_picker_on_open, restore_focus, trap_tab},
     selectors::{category_code, category_from_code, filtered_skills, skill_categories},
     state::Controller,
 };
@@ -28,9 +28,7 @@ fn SkillPickerDialog() -> impl IntoView {
     let i18n = state.i18n;
     let return_slot = state.skill_picker_slot.get_untracked();
     let input_ref = NodeRef::<leptos::html::Input>::new();
-    input_ref.on_load(|input| {
-        let _ = input.focus();
-    });
+    input_ref.on_load(|input| focus_picker_on_open(&input));
     on_cleanup(move || {
         leptos::leptos_dom::helpers::queue_microtask(move || {
             if active_element().is_none_or(|element| element.tag_name() == "BODY") {
@@ -54,6 +52,7 @@ fn SkillPickerDialog() -> impl IntoView {
                 <section
                     class="picker-panel"
                     role="dialog"
+                    tabindex="-1"
                     aria-modal="true"
                     aria-labelledby="skill-picker-heading"
                     on:click=move |event: web_sys::MouseEvent| event.stop_propagation()
