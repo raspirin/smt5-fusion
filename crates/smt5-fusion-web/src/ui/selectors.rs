@@ -77,6 +77,7 @@ pub(super) fn filtered_skills(state: AppState) -> Vec<SkillCatalogDto> {
         return Vec::new();
     };
     let selected = state.required_skills.get();
+    let slot = state.skill_picker_slot.get();
     let query = SearchQuery::new(&state.skill_query.get());
     let category = state.skill_category.get();
     let locale = state.i18n.locale();
@@ -84,7 +85,12 @@ pub(super) fn filtered_skills(state: AppState) -> Vec<SkillCatalogDto> {
         .skills
         .iter()
         .filter(|skill| skill_eligible_for_target(target, skill))
-        .filter(|skill| !selected.contains(&skill.id))
+        .filter(|skill| {
+            !selected
+                .iter()
+                .enumerate()
+                .any(|(index, selected)| Some(index) != slot && *selected == skill.id)
+        })
         .filter(|skill| category.is_none_or(|category| skill.category == category))
         .filter_map(|skill| {
             let score = if query.is_empty() {

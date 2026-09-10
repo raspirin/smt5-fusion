@@ -124,12 +124,25 @@ fn SkillPickerOption(skill: SkillCatalogDto) -> impl IntoView {
     let i18n = state.i18n;
     let skill_id = skill.id;
     let category = skill.category;
+    let current = move || {
+        state.skill_picker_slot.get().is_some_and(|slot| {
+            state
+                .required_skills
+                .with(|skills| skills.get(slot) == Some(&skill_id))
+        })
+    };
     let option_class = format!(
         "picker-item skill-option kind-{}",
         skill_category_slug(category)
     );
     view! {
-        <button class=option_class type="button" disabled=move || !state.can_edit_skills() on:click=move |_| controller.add_skill(skill_id)>
+        <button
+            class=option_class
+            type="button"
+            aria-current=move || current().then_some("true")
+            disabled=move || !state.can_edit_skills()
+            on:click=move |_| controller.select_skill(skill_id)
+        >
             <span class="skill-option-copy">
                 <strong>{move || i18n.skill_name(skill_id)}</strong>
                 <small>{move || i18n.skill_category_name(category)}</small>

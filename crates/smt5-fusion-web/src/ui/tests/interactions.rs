@@ -159,7 +159,8 @@ fn search_disables_only_conflicting_operations_and_keeps_the_input_snapshot() {
         controller.open_options(Vec::new());
         assert!(worker.take_requests().is_empty());
 
-        controller.add_skill(skill_ids::RIBERAMA);
+        controller.open_skill_picker(0);
+        controller.select_skill(skill_ids::RIBERAMA);
         controller.set_depth(3);
         controller.set_locale(Locale::JaJp);
         assert!(!worker.terminated());
@@ -189,7 +190,8 @@ fn returning_to_the_original_conditions_clears_the_stale_notice() {
         assert!(untrack(|| state.result_is_stale()));
         controller.set_depth(1);
         assert!(!untrack(|| state.result_is_stale()));
-        controller.add_skill(skill_ids::RIBERAMA);
+        controller.open_skill_picker(0);
+        controller.select_skill(skill_ids::RIBERAMA);
         assert!(untrack(|| state.result_is_stale()));
         controller.remove_skill(0);
         assert!(!untrack(|| state.result_is_stale()));

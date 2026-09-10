@@ -41,8 +41,18 @@ fn SkillSlot(index: usize) -> impl IntoView {
                         .unwrap_or_else(|| "skill-slot filled".to_owned());
                     let localized_skill = i18n.skill_name(skill_id);
                     view! {
-                        <div class=slot_class id=format!("skill-slot-{index}") tabindex="-1">
-                            <div>
+                        <div class=slot_class>
+                            <button
+                                type="button"
+                                class="skill-slot-edit"
+                                id=format!("skill-slot-{index}")
+                                aria-haspopup="dialog"
+                                disabled=move || !state.can_edit_skills()
+                                on:click={
+                                    let controller = open_controller.clone();
+                                    move |_| controller.open_skill_picker(index)
+                                }
+                            >
                                 <span class="slot-number">{format!("{:02}", index + 1)}</span>
                                 <strong>{localized_skill.clone()}</strong>
                                 {category.map(|category| view! {
@@ -50,7 +60,7 @@ fn SkillSlot(index: usize) -> impl IntoView {
                                         {i18n.skill_category_name(category)}
                                     </span>
                                 })}
-                            </div>
+                            </button>
                             <button
                                 type="button"
                                 class="icon-button"
@@ -71,6 +81,7 @@ fn SkillSlot(index: usize) -> impl IntoView {
                         type="button"
                         class="skill-slot empty"
                         id=format!("skill-slot-{index}")
+                        aria-haspopup="dialog"
                         disabled=move || !state.can_edit_skills()
                         on:click={
                             let controller = open_controller.clone();

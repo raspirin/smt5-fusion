@@ -227,8 +227,7 @@ input:disabled {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-a:focus-visible,
-.skill-slot:focus-visible {
+a:focus-visible {
     outline: 3px solid var(--focus-ring);
     outline-offset: 2px;
 }
@@ -664,6 +663,8 @@ h3 {
 }
 
 .skill-slot.filled {
+    position: relative;
+    padding: 0;
     border-left-width: 4px;
 }
 
@@ -671,11 +672,25 @@ h3 {
     border-left-color: var(--kind-color);
 }
 
-.skill-slot > div {
+.skill-slot-edit {
     display: flex;
     min-width: 0;
+    flex: 1 1 auto;
+    align-self: stretch;
     align-items: center;
     gap: 0.32rem;
+    padding: 0.22rem calc(34px + 0.72rem) 0.22rem 0.36rem;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    text-align: left;
+}
+
+@media (hover: hover) {
+    .skill-slot.filled:hover:has(.skill-slot-edit:not(:disabled)),
+    .skill-slot.empty:hover:not(:disabled) {
+        background: var(--orange-soft);
+    }
 }
 
 .skill-slot strong {
@@ -699,8 +714,12 @@ h3 {
 }
 
 .skill-slot .icon-button {
+    position: absolute;
+    top: 50%;
+    right: 0.36rem;
     width: 34px;
     height: 34px;
+    transform: translateY(-50%);
 }
 
 .slot-number {
@@ -1438,6 +1457,11 @@ h3 {
 
 .skill-option[class*="kind-"] {
     border-left-color: var(--kind-color);
+}
+
+.skill-option[aria-current="true"] {
+    background: var(--green-soft);
+    box-shadow: inset 0 0 0 1px var(--green);
 }
 
 .skill-option-copy {

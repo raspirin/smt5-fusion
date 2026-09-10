@@ -167,6 +167,64 @@ fn header_controls_share_outer_sizing_instead_of_text_height() {
 }
 
 #[test]
+fn filled_skill_slots_use_separate_native_edit_and_remove_buttons() {
+    let source = include_str!("../components/required_skills.rs");
+    let (_, filled) = source.split_once("<div class=slot_class>").unwrap();
+    let (edit, rest) = filled.split_once("</button>").unwrap();
+    let (remove, rest) = rest.split_once("</button>").unwrap();
+    assert_eq!(edit.matches("<button").count(), 1);
+    assert!(edit.contains("class=\"skill-slot-edit\""));
+    assert!(edit.contains("id=format!(\"skill-slot-{index}\")"));
+    assert!(edit.contains("aria-haspopup=\"dialog\""));
+    assert!(edit.contains("disabled=move || !state.can_edit_skills()"));
+    assert!(edit.contains("on:click="));
+    assert!(edit.contains("controller.open_skill_picker(index)"));
+    assert_eq!(remove.matches("<button").count(), 1);
+    assert!(remove.contains("class=\"icon-button\""));
+    assert!(remove.contains("aria-label=i18n.remove_skill"));
+    assert!(remove.contains("controller.remove_skill(index)"));
+    assert!(!remove.contains("open_skill_picker"));
+    assert!(rest.trim_start().starts_with("</div>"));
+}
+
+#[test]
+fn skill_slot_edit_button_spans_the_row_beneath_the_remove_button() {
+    let slot = rule(".skill-slot.filled");
+    assert_eq!(slot["position"], "relative");
+    assert_eq!(slot["padding"], "0");
+    let edit = rule(".skill-slot-edit");
+    assert_eq!(edit["flex"], "1 1 auto");
+    assert_eq!(edit["align-self"], "stretch");
+    assert_eq!(edit["min-width"], "0");
+    assert_eq!(
+        edit["padding"],
+        "0.22rem calc(34px + 0.72rem) 0.22rem 0.36rem"
+    );
+    let remove = rule(".skill-slot .icon-button");
+    assert_eq!(remove["position"], "absolute");
+    assert_eq!(remove["top"], "50%");
+    assert_eq!(remove["right"], "0.36rem");
+    assert_eq!(remove["width"], "34px");
+    assert_eq!(remove["transform"], "translateY(-50%)");
+    for style in [rule(".skill-slot"), slot, edit, remove] {
+        assert!(!style.contains_key("-webkit-tap-highlight-color"));
+        assert!(!style.contains_key("user-select"));
+        assert!(!style.contains_key("-webkit-user-select"));
+    }
+    let hover = css_block(CSS, "@media (hover: hover)");
+    assert!(hover.contains(".skill-slot.filled:hover:has(.skill-slot-edit:not(:disabled))"));
+    assert!(hover.contains(".skill-slot.empty:hover:not(:disabled)"));
+    let hover = rule(
+        ".skill-slot.filled:hover:has(.skill-slot-edit:not(:disabled)), .skill-slot.empty:hover:not(:disabled)",
+    );
+    assert_eq!(hover["background"], "var(--orange-soft)");
+    assert_eq!(
+        rule(".skill-option[aria-current=\"true\"]")["background"],
+        "var(--green-soft)"
+    );
+}
+
+#[test]
 fn touch_and_narrow_sidebars_grow_with_content_instead_of_scrolling_internally() {
     use super::super::events::TOUCH_OR_NO_HOVER_QUERY;
 

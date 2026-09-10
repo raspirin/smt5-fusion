@@ -751,9 +751,7 @@ impl Controller {
     }
 
     pub(super) fn open_skill_picker(&self, slot: usize) {
-        if untrack(|| self.state.can_edit_skills())
-            && (self.state.required_skills.get_untracked().len()..SKILL_CAPACITY).contains(&slot)
-        {
+        if untrack(|| self.state.can_edit_skills()) && slot < SKILL_CAPACITY {
             batch(|| {
                 self.state.skill_picker_slot.set(Some(slot));
                 self.state.skill_picker_open.set(true);
@@ -761,12 +759,20 @@ impl Controller {
         }
     }
 
-    pub(super) fn add_skill(&self, skill_id: SkillId) {
+    pub(super) fn select_skill(&self, skill_id: SkillId) {
         if !untrack(|| self.state.can_edit_skills())
-            || self.state.required_skills.get_untracked().len() >= SKILL_CAPACITY
+            || !self.state.skill_picker_open.get_untracked()
         {
             return;
         }
+        let Some(slot) = self
+            .state
+            .skill_picker_slot
+            .get_untracked()
+            .filter(|slot| *slot < SKILL_CAPACITY)
+        else {
+            return;
+        };
         let eligible = match (
             self.state.catalog.get_untracked(),
             self.state.target.get_untracked(),
@@ -781,18 +787,25 @@ impl Controller {
             _ => false,
         };
         if !eligible
-            || self
-                .state
-                .required_skills
-                .get_untracked()
-                .contains(&skill_id)
+            || self.state.required_skills.with_untracked(|skills| {
+                skills
+                    .iter()
+                    .enumerate()
+                    .any(|(index, selected)| index != slot && *selected == skill_id)
+            })
         {
             return;
         }
-        self.state
-            .required_skills
-            .update(|skills| skills.push(skill_id));
-        self.state.close_skill_picker();
+        batch(|| {
+            self.state.required_skills.update(|skills| {
+                if let Some(selected) = skills.get_mut(slot) {
+                    *selected = skill_id;
+                } else {
+                    skills.push(skill_id);
+                }
+            });
+            self.state.close_skill_picker();
+        });
         self.form_changed();
     }
 
@@ -800,10 +813,13 @@ impl Controller {
         if !untrack(|| self.state.can_edit_skills()) {
             return;
         }
-        self.state.required_skills.update(|skills| {
-            if index < skills.len() {
-                skills.remove(index);
-            }
+        batch(|| {
+            self.state.close_skill_picker();
+            self.state.required_skills.update(|skills| {
+                if index < skills.len() {
+                    skills.remove(index);
+                }
+            });
         });
         self.form_changed();
     }
