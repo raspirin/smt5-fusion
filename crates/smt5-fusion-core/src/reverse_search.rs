@@ -429,6 +429,7 @@ impl Solver<'_> {
         choices: Vec<RouteChoice>,
     ) -> Rc<RouteSpace> {
         RouteSpace::new(
+            self.game_data,
             key.demon,
             self.skills.skill_ids(key.required_skills),
             fusion_depth,

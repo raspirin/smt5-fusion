@@ -2,7 +2,14 @@ use std::rc::Rc;
 
 use num_bigint::BigUint;
 
-use crate::{data::game_data::GameData, reverse_search::SearchRequest, route_replay};
+use crate::{
+    data::game_data::GameData,
+    reverse_search::SearchRequest,
+    route_ranking::{self, BestChoice},
+    route_replay,
+};
+
+pub use crate::route_ranking::RouteScore;
 
 use super::{
     demon::{Demon, DemonId},
@@ -26,6 +33,7 @@ pub struct RouteSpace {
     pub fusion_depth: u32,
     pub choices: Vec<RouteChoice>,
     pub route_count: BigUint,
+    best_choice: Option<BestChoice>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,11 +98,12 @@ impl RouteSelector {
         });
         let default_selection = routes
             .iter()
-            .find(|space| !space.choices.is_empty())
-            .and_then(|space| {
+            .filter_map(|space| space.best_score().map(|score| (space, score)))
+            .min_by(|(_, left), (_, right)| left.cmp(right))
+            .map(|(space, _)| {
                 Rc::clone(space)
                     .select_default(game_data, player_context)
-                    .ok()
+                    .expect("ranked default must be selectable")
             });
         Self {
             routes,
@@ -110,6 +119,7 @@ impl RouteSelector {
 
 impl RouteSpace {
     pub(crate) fn new(
+        game_data: &GameData,
         demon: DemonId,
         required_skills: Vec<SkillId>,
         fusion_depth: u32,
@@ -122,13 +132,33 @@ impl RouteSpace {
                 RouteChoice::Fusion(fusion) => Self::count_fusion(fusion_depth, fusion),
             })
             .sum();
-        Rc::new(Self {
+        let mut space = Self {
             demon,
             required_skills,
             fusion_depth,
             choices,
             route_count,
-        })
+            best_choice: None,
+        };
+        space.best_choice = route_ranking::best_for_space(&space, game_data);
+        debug_assert_eq!(
+            space.best_choice.is_none(),
+            space.route_count == BigUint::default()
+        );
+        Rc::new(space)
+    }
+
+    pub fn best_score(&self) -> Option<&RouteScore> {
+        self.best_choice.as_ref().map(|choice| &choice.score)
+    }
+
+    pub fn choice_score(&self, game_data: &GameData, choice_index: usize) -> Option<RouteScore> {
+        if let Some(best) = &self.best_choice
+            && best.choice_index == choice_index
+        {
+            return Some(best.score.clone());
+        }
+        route_ranking::score_choice(self, game_data, choice_index)
     }
 
     pub fn choice(&self, choice_index: usize) -> Option<&RouteChoice> {
@@ -170,13 +200,12 @@ impl RouteSpace {
         game_data: &GameData,
         player_context: &PlayerContext,
     ) -> Result<RouteSelection, SelectionError> {
-        for choice_index in 0..self.choices.len() {
-            if let Ok(selection) = Rc::clone(&self).select(game_data, player_context, choice_index)
-            {
-                return Ok(selection);
-            }
-        }
-        Err(SelectionError::NoRoute)
+        let choice_index = self
+            .best_choice
+            .as_ref()
+            .ok_or(SelectionError::NoRoute)?
+            .choice_index;
+        self.select(game_data, player_context, choice_index)
     }
 
     fn select(
@@ -185,22 +214,24 @@ impl RouteSpace {
         player_context: &PlayerContext,
         choice_index: usize,
     ) -> Result<RouteSelection, SelectionError> {
-        let materials = match self
+        let choice = self
             .choice(choice_index)
-            .ok_or(SelectionError::InvalidChoice(choice_index))?
-        {
-            RouteChoice::Direct(_) => {
-                if self.fusion_depth != 0 {
-                    return Err(SelectionError::InvalidFusionDepth(self.fusion_depth));
-                }
-                Vec::new()
-            }
-            RouteChoice::Fusion(fusion) => {
-                if self.fusion_depth == 0 {
-                    return Err(SelectionError::InvalidFusionDepth(self.fusion_depth));
-                }
-                self.select_materials(game_data, player_context, fusion, self.fusion_depth - 1)?
-            }
+            .ok_or(SelectionError::InvalidChoice(choice_index))?;
+        if matches!(choice, RouteChoice::Direct(_)) != (self.fusion_depth == 0) {
+            return Err(SelectionError::InvalidFusionDepth(self.fusion_depth));
+        }
+        let material_route_indices = route_ranking::material_route_indices(&self, choice_index)
+            .ok_or(SelectionError::NoRoute)?;
+        let materials = match choice {
+            RouteChoice::Direct(_) => Vec::new(),
+            RouteChoice::Fusion(fusion) => fusion
+                .materials
+                .iter()
+                .zip(&material_route_indices)
+                .map(|(material, &index)| {
+                    Rc::clone(&material.routes[index]).select_default(game_data, player_context)
+                })
+                .collect::<Result<Vec<_>, _>>()?,
         };
         let route = self.materialize(game_data, choice_index, &materials)?;
         let request = SearchRequest {
@@ -216,53 +247,6 @@ impl RouteSpace {
             demon,
             materials,
         })
-    }
-
-    fn select_materials(
-        &self,
-        game_data: &GameData,
-        player_context: &PlayerContext,
-        fusion: &FusionChoice,
-        required_child_depth: u32,
-    ) -> Result<Vec<RouteSelection>, SelectionError> {
-        let mut child_spaces = fusion
-            .materials
-            .iter()
-            .map(|material| {
-                material
-                    .routes
-                    .iter()
-                    .find(|child| !child.choices.is_empty())
-                    .cloned()
-                    .ok_or(SelectionError::NoRoute)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        if child_spaces
-            .iter()
-            .all(|child| child.fusion_depth != required_child_depth)
-        {
-            let material_index = fusion
-                .materials
-                .iter()
-                .rposition(|material| {
-                    material.routes.iter().any(|child| {
-                        child.fusion_depth == required_child_depth && !child.choices.is_empty()
-                    })
-                })
-                .ok_or(SelectionError::NoRoute)?;
-            child_spaces[material_index] = fusion.materials[material_index]
-                .routes
-                .iter()
-                .find(|child| {
-                    child.fusion_depth == required_child_depth && !child.choices.is_empty()
-                })
-                .cloned()
-                .expect("required child depth must exist");
-        }
-        child_spaces
-            .into_iter()
-            .map(|child| child.select_default(game_data, player_context))
-            .collect()
     }
 
     fn materialize(
@@ -329,6 +313,10 @@ impl RouteSpace {
 }
 
 impl RouteSelection {
+    pub fn score(&self, game_data: &GameData) -> RouteScore {
+        route_ranking::actual_score(self, game_data)
+    }
+
     pub fn materialize_route(&self, game_data: &GameData) -> Result<Rc<Route>, SelectionError> {
         self.space
             .materialize(game_data, self.choice_index, &self.materials)
@@ -393,9 +381,13 @@ impl RouteSelection {
             .space
             .choices
             .iter()
-            .position(|choice| {
+            .enumerate()
+            .filter(|(_, choice)| {
                 matches!(choice, RouteChoice::Fusion(fusion) if fusion.recipe.materials.contains(&replacement))
             })
+            .filter_map(|(index, _)| selected.space.choice_score(game_data, index).map(|score| (index, score)))
+            .min_by(|(_, left), (_, right)| left.cmp(right))
+            .map(|(index, _)| index)
             .ok_or(SelectionError::IncompatibleMaterial(replacement))?;
         Ok(RouteUpdate {
             replace_from: parent.clone(),
@@ -467,7 +459,13 @@ mod tests {
 
     fn selection(demon: u32, required_skills: Vec<SkillId>) -> RouteSelection {
         RouteSelection {
-            space: RouteSpace::new(DemonId(demon), required_skills, 0, Vec::new()),
+            space: RouteSpace::new(
+                &crate::dataset::game_data(),
+                DemonId(demon),
+                required_skills,
+                0,
+                Vec::new(),
+            ),
             choice_index: 0,
             demon: Demon {
                 meta: DemonId(demon),

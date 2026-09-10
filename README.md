@@ -9,7 +9,7 @@ Try it online: <https://megaten.rasp505.top/>
 ## Features
 
 - Supports normal fusion, special fusion, and skills learned by leveling up.
-- Provides exact route counts within the selected depth limit and displays the shallowest route by default; supports recipe changes, expanding and collapsing branches, and restoring the default route.
+- Provides exact route counts within the selected depth limit and ranks the default route and recipe options by fewer fusions, then shallower depth, then lower estimated summoning cost; supports recipe changes, expanding and collapsing branches, and restoring the default route.
 - Offers Simplified Chinese, Traditional Chinese, English, and Japanese interfaces, with cross-language name search.
 - Includes light and dark themes, with an automatic mode that follows the system appearance.
 - Adapts to desktops, tablets, and phones, with keyboard and touch support. Search settings, language, and appearance preferences are saved locally in the browser.

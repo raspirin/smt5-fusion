@@ -161,12 +161,17 @@ fn every_search_result_matches_the_bottom_up_oracle() {
                     .map(|solution| solution.route.as_ref().clone())
                     .collect::<Vec<_>>();
                 assert_same_routes(&actual, &expected, &request);
-                match (selector.default_selection.as_ref(), expected.first()) {
-                    (Some(selection), Some(expected)) => assert_eq!(
-                        selection.materialize_route(&data).unwrap().as_ref(),
-                        expected,
-                        "request={request:?}"
-                    ),
+                let expected_score = expected.iter().map(|route| route_score(&data, route)).min();
+                match (selector.default_selection.as_ref(), expected_score) {
+                    (Some(selection), Some(expected_score)) => {
+                        let route = selection.materialize_route(&data).unwrap();
+                        assert!(expected.contains(route.as_ref()), "request={request:?}");
+                        assert_eq!(
+                            route_score(&data, &route),
+                            expected_score,
+                            "request={request:?}"
+                        );
+                    }
                     (None, None) => {}
                     _ => panic!("default-route mismatch for {request:?}"),
                 }
@@ -212,6 +217,21 @@ fn search_is_stable_and_normalizes_required_skills() {
     let canonical = search_request(DemonId(7), vec![SkillId(1), SkillId(2)], 2);
     let reordered = search_request(DemonId(7), vec![SkillId(2), SkillId(1), SkillId(2)], 2);
 
+    let default = search(&data, &context, &canonical)
+        .unwrap()
+        .default_selection;
+    assert_eq!(
+        search(&data, &context, &canonical)
+            .unwrap()
+            .default_selection,
+        default
+    );
+    assert_eq!(
+        search(&data, &context, &reordered)
+            .unwrap()
+            .default_selection,
+        default
+    );
     let expected = search_solutions(&data, &context, &canonical).unwrap();
     assert_eq!(
         search_solutions(&data, &context, &canonical).unwrap(),
@@ -224,7 +244,7 @@ fn search_is_stable_and_normalizes_required_skills() {
 }
 
 #[test]
-fn route_selector_replaces_material_with_the_first_compatible_choice() {
+fn route_selector_replaces_material_with_the_best_compatible_choice() {
     let data = crate::dataset::game_data();
     let mut context = PlayerContext::default();
     context.set_konohana_sakuya_dlc(true);
@@ -263,6 +283,11 @@ fn route_selector_replaces_material_with_the_first_compatible_choice() {
         panic!("expected fusion route");
     };
     assert!(recipe.materials.contains(&replacement));
+    let best = expand_space(&data, &current.space).into_iter()
+        .filter(|route| matches!(route.as_ref(), Route::Fusion { recipe, .. } if recipe.materials.contains(&replacement)))
+        .map(|route| route_score(&data, &route))
+        .min().unwrap();
+    assert_eq!(route_score(&data, &route), best);
 }
 
 #[test]
@@ -651,6 +676,25 @@ fn assert_same_routes(actual: &[Route], expected: &[Route], request: &SearchRequ
     assert!(unmatched.is_empty(), "request={request:?}");
 }
 
+fn route_score(data: &GameData, route: &Route) -> (u64, u32, u64) {
+    match route {
+        Route::Direct { demon } => (
+            0,
+            0,
+            u64::from(data.demons().get(*demon).unwrap().compendium_price),
+        ),
+        Route::Upgrade { previous, .. } => route_score(data, previous),
+        Route::Fusion { materials, .. } => {
+            materials
+                .iter()
+                .fold((1, 1, 0), |(count, depth, cost), material| {
+                    let child = route_score(data, &material.route);
+                    (count + child.0, depth.max(1 + child.1), cost + child.2)
+                })
+        }
+    }
+}
+
 fn route_depth(route: &Route) -> u32 {
     match route {
         Route::Direct { .. } => 0,
@@ -702,7 +746,7 @@ fn demon(id: u32, natural_skills: Vec<NaturalSkill>) -> DemonMeta {
         race: Race::Fiend,
         base_level: 1,
         content: DemonContent::Base,
-        compendium_price: 0,
+        compendium_price: (id * 37 % 13) * 100 + 1,
         natural_skills,
         innate_skill: SkillId(99),
     }

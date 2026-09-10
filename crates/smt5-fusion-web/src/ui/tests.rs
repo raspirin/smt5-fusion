@@ -13,7 +13,8 @@ use crate::{
 
 use super::{
     selectors::{
-        all_collapsible_paths, filtered_demons, filtered_skills, grouped_digits, option_matches,
+        all_collapsible_paths, filtered_demons, filtered_options, filtered_skills, grouped_digits,
+        option_matches,
     },
     state::{AppError, AppState, Controller, PersistedForm},
 };
@@ -67,6 +68,58 @@ fn source_search_matches_only_demons_present_in_an_option() {
     assert!(option_matches(&fusion, "バロン", Locale::ZhCn));
     assert!(!option_matches(&fusion, "湿婆", Locale::ZhCn));
     assert!(option_matches(&fusion, "barong", Locale::EnUs));
+}
+
+#[test]
+fn source_filtering_preserves_worker_ranking_for_equal_search_matches() {
+    Owner::new().with(|| {
+        let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
+        let fusion = |option_id, route_depth| VisibleOptionDto {
+            option_id,
+            selected: false,
+            acquisition: OptionAcquisitionDto::Fusion {
+                is_special: false,
+                route_depth,
+                fusion_level: 1,
+                target_level: 1,
+                materials: vec![crate::protocol::OptionMaterialDto {
+                    demon: DemonId(32),
+                    required_skills: Vec::new(),
+                }],
+            },
+        };
+        let options = Arc::new(NodeOptionsDto {
+            session_id: 1,
+            selection_revision: 0,
+            path: Vec::new(),
+            demon: DemonId(193),
+            options: vec![
+                fusion(9, 3),
+                VisibleOptionDto {
+                    option_id: 4,
+                    selected: false,
+                    acquisition: OptionAcquisitionDto::Direct {
+                        summon_level: 1,
+                        target_level: 1,
+                    },
+                },
+                fusion(2, 2),
+            ],
+        });
+        state.options.set(Some(options.clone()));
+        let ids = || {
+            filtered_options(state)
+                .iter()
+                .map(|option| option.option_id)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(), [9, 4, 2]);
+        state.option_query.set("Barong".to_owned());
+        assert_eq!(ids(), [9, 2]);
+        state.option_query.set(String::new());
+        assert_eq!(ids(), [9, 4, 2]);
+        assert_eq!(state.options.get_untracked(), Some(options));
+    });
 }
 
 #[test]

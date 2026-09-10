@@ -5,6 +5,7 @@ pub mod forward_fuse;
 mod fusion;
 pub mod model;
 pub mod reverse_search;
+mod route_ranking;
 pub mod route_replay;
 
 #[cfg(test)]

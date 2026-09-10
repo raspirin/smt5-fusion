@@ -1,4 +1,4 @@
-use std::{collections::HashSet, rc::Rc};
+use std::{collections::HashMap, rc::Rc};
 
 use smt5_fusion_core::{
     data::game_data::GameData,
@@ -7,7 +7,8 @@ use smt5_fusion_core::{
         demon::{DemonId, SkillAcquisition},
         player_context::PlayerContext,
         route_space::{
-            RouteChoice, RoutePath, RouteSelection, RouteSelector, RouteSpace, SelectionError,
+            RouteChoice, RoutePath, RouteScore, RouteSelection, RouteSelector, RouteSpace,
+            SelectionError,
         },
         skill::SkillCategory,
     },
@@ -33,6 +34,13 @@ struct SearchSession {
     revision: u64,
     selector: RouteSelector,
     current: Option<RouteSelection>,
+    options: Option<CachedOptions>,
+}
+
+struct CachedOptions {
+    revision: u64,
+    path: RoutePath,
+    choices: Vec<VisibleChoice>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -48,6 +56,8 @@ struct VisibleChoice {
     key: VisibleChoiceKey,
     space: Rc<RouteSpace>,
     choice_index: usize,
+    score: RouteScore,
+    selected: bool,
 }
 
 impl Default for WorkerService {
@@ -181,41 +191,39 @@ impl WorkerService {
             revision: 0,
             selector,
             current,
+            options: None,
         });
         WorkerResponse::SearchCompleted { request_id, result }
     }
 
     fn node_options(
-        &self,
+        &mut self,
         request_id: u64,
         session_id: u64,
         selection_revision: u64,
         path: Vec<u8>,
     ) -> WorkerResponse {
-        let session = match self.session(session_id, selection_revision) {
-            Ok(session) => session,
-            Err(code) => return failure(request_id, code),
-        };
-        let Some(current) = session.current.as_ref() else {
-            return failure(request_id, WorkerFailureCode::NoRoute);
-        };
         let route_path = route_path(&path);
-        let selected = match selection_at(current, &route_path) {
-            Some(selected) => selected,
-            None => return failure(request_id, WorkerFailureCode::InvalidPath),
-        };
-        let spaces = match spaces_for_path(&session.selector, current, &route_path) {
-            Ok(spaces) => spaces,
-            Err(_) => return failure(request_id, WorkerFailureCode::InvalidPath),
-        };
-        let choices = visible_choices(spaces);
-        let selected_key = selected_key(selected);
+        if let Err(code) = self.prepare_options(session_id, selection_revision, &route_path) {
+            return failure(request_id, code);
+        }
+        let session = self.session.as_ref().expect("validated session must exist");
+        let current = session
+            .current
+            .as_ref()
+            .expect("validated selection must exist");
+        let selected = selection_at(current, &route_path).expect("validated path must exist");
+        let choices = &session
+            .options
+            .as_ref()
+            .expect("options must be prepared")
+            .choices;
         let options = choices
             .iter()
             .enumerate()
             .map(|(index, visible)| VisibleOptionDto {
                 option_id: u32::try_from(index).expect("visible option count must fit in u32"),
-                selected: selected_key.as_ref() == Some(&visible.key),
+                selected: visible.selected,
                 acquisition: self.option_acquisition(visible),
             })
             .collect();
@@ -240,26 +248,24 @@ impl WorkerService {
         option_id: u32,
     ) -> WorkerResponse {
         let route_path = route_path(&path);
+        if let Err(code) = self.prepare_options(session_id, selection_revision, &route_path) {
+            return failure(request_id, code);
+        }
         let (space, choice_index, unchanged) = {
-            let session = match self.session(session_id, selection_revision) {
-                Ok(session) => session,
-                Err(code) => return failure(request_id, code),
-            };
-            let Some(current) = session.current.as_ref() else {
-                return failure(request_id, WorkerFailureCode::NoRoute);
-            };
-            let spaces = match spaces_for_path(&session.selector, current, &route_path) {
-                Ok(spaces) => spaces,
-                Err(_) => return failure(request_id, WorkerFailureCode::InvalidPath),
-            };
-            let choices = visible_choices(spaces);
+            let session = self.session.as_ref().expect("validated session must exist");
+            let choices = &session
+                .options
+                .as_ref()
+                .expect("options must be prepared")
+                .choices;
             let Some(visible) = choices.get(option_id as usize) else {
                 return failure(request_id, WorkerFailureCode::InvalidOption);
             };
-            let unchanged = selection_at(current, &route_path)
-                .and_then(selected_key)
-                .is_some_and(|selected| selected == visible.key);
-            (Rc::clone(&visible.space), visible.choice_index, unchanged)
+            (
+                Rc::clone(&visible.space),
+                visible.choice_index,
+                visible.selected,
+            )
         };
 
         if unchanged {
@@ -294,6 +300,7 @@ impl WorkerService {
                 return selection_failure(request_id, error);
             }
             session.revision = session.revision.wrapping_add(1);
+            session.options = None;
         }
         let session = self.session.as_ref().expect("updated session must exist");
         self.selection_changed(request_id, session)
@@ -315,9 +322,40 @@ impl WorkerService {
             };
             session.current = Some(default);
             session.revision = session.revision.wrapping_add(1);
+            session.options = None;
         }
         let session = self.session.as_ref().expect("reset session must exist");
         self.selection_changed(request_id, session)
+    }
+
+    fn prepare_options(
+        &mut self,
+        session_id: u64,
+        revision: u64,
+        path: &RoutePath,
+    ) -> Result<(), WorkerFailureCode> {
+        let session = self.session(session_id, revision)?;
+        if session
+            .options
+            .as_ref()
+            .is_some_and(|options| options.revision == revision && &options.path == path)
+        {
+            return Ok(());
+        }
+        let current = session.current.as_ref().ok_or(WorkerFailureCode::NoRoute)?;
+        let spaces = spaces_for_path(&session.selector, current, path)
+            .map_err(|_| WorkerFailureCode::InvalidPath)?;
+        let choices = visible_choices(&self.game_data, spaces, current, path)
+            .map_err(|_| WorkerFailureCode::InvalidPath)?;
+        self.session
+            .as_mut()
+            .expect("validated session must exist")
+            .options = Some(CachedOptions {
+            revision,
+            path: path.clone(),
+            choices,
+        });
+        Ok(())
     }
 
     fn session(
@@ -495,22 +533,113 @@ fn selection_at<'a>(selection: &'a RouteSelection, path: &RoutePath) -> Option<&
     Some(current)
 }
 
-fn visible_choices(spaces: &[Rc<RouteSpace>]) -> Vec<VisibleChoice> {
-    let mut seen = HashSet::new();
-    let mut visible = Vec::new();
+fn visible_choices(
+    game_data: &GameData,
+    spaces: &[Rc<RouteSpace>],
+    current: &RouteSelection,
+    path: &RoutePath,
+) -> Result<Vec<VisibleChoice>, SelectionError> {
+    let selected = selection_at(current, path)
+        .ok_or_else(|| SelectionError::InvalidRoutePath(path.clone()))?;
+    let context = ReplacementContext::new(game_data, current, path)?;
+    let mut groups = HashMap::<VisibleChoiceKey, usize>::new();
+    let mut visible = Vec::<VisibleChoice>::new();
     for space in spaces {
         for (choice_index, choice) in space.choices.iter().enumerate() {
+            let Some(score) = space.choice_score(game_data, choice_index) else {
+                continue;
+            };
             let key = choice_key(space.fusion_depth, choice);
-            if seen.insert(key.clone()) {
-                visible.push(VisibleChoice {
-                    key,
-                    space: Rc::clone(space),
-                    choice_index,
-                });
+            let candidate = VisibleChoice {
+                key: key.clone(),
+                space: Rc::clone(space),
+                choice_index,
+                score,
+                selected: false,
+            };
+            if let Some(&index) = groups.get(&key) {
+                if candidate.score < visible[index].score {
+                    visible[index] = candidate;
+                }
+            } else {
+                groups.insert(key, visible.len());
+                visible.push(candidate);
             }
         }
     }
-    visible
+    if let Some(key) = selected_key(selected)
+        && let Some(current_option) = visible.iter_mut().find(|choice| choice.key == key)
+    {
+        *current_option = VisibleChoice {
+            key,
+            space: Rc::clone(&selected.space),
+            choice_index: selected.choice_index,
+            score: selected.score(game_data),
+            selected: true,
+        };
+    }
+    let mut ranked = visible
+        .into_iter()
+        .map(|choice| (context.score(&choice.score), choice))
+        .collect::<Vec<_>>();
+    ranked.sort_by(|(left_score, left), (right_score, right)| {
+        left_score
+            .cmp(right_score)
+            .then_with(|| left.space.fusion_depth.cmp(&right.space.fusion_depth))
+            .then_with(|| left.choice_index.cmp(&right.choice_index))
+    });
+    Ok(ranked.into_iter().map(|(_, choice)| choice).collect())
+}
+
+struct ReplacementContext {
+    outside: RouteScore,
+    path_depth: u32,
+}
+
+impl ReplacementContext {
+    fn new(
+        game_data: &GameData,
+        current: &RouteSelection,
+        path: &RoutePath,
+    ) -> Result<Self, SelectionError> {
+        let mut outside = RouteScore::default();
+        let mut current = current;
+        for (depth, &material_index) in path.0.iter().enumerate() {
+            let selected = current
+                .materials
+                .get(material_index)
+                .ok_or_else(|| SelectionError::InvalidRoutePath(path.clone()))?;
+            outside.fusion_count += 1_u8;
+            for (index, material) in current.materials.iter().enumerate() {
+                if index == material_index {
+                    continue;
+                }
+                let score = material.score(game_data);
+                outside.fusion_count += score.fusion_count;
+                outside.estimated_macca += score.estimated_macca;
+                outside.fusion_depth = outside.fusion_depth.max(
+                    u32::try_from(depth + 1).expect("path depth must fit in u32")
+                        + score.fusion_depth,
+                );
+            }
+            current = selected;
+        }
+        Ok(Self {
+            outside,
+            path_depth: u32::try_from(path.0.len()).expect("path depth must fit in u32"),
+        })
+    }
+
+    fn score(&self, subtree: &RouteScore) -> RouteScore {
+        RouteScore {
+            fusion_count: &self.outside.fusion_count + &subtree.fusion_count,
+            fusion_depth: self
+                .outside
+                .fusion_depth
+                .max(self.path_depth + subtree.fusion_depth),
+            estimated_macca: &self.outside.estimated_macca + &subtree.estimated_macca,
+        }
+    }
 }
 
 fn has_multiple_visible_choices(spaces: &[Rc<RouteSpace>]) -> bool {
@@ -671,6 +800,9 @@ pub fn run_worker() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+
+    mod ranking;
     use smt5_fusion_core::{
         dataset::{demon_ids, skill_ids},
         model::skill::SkillId,

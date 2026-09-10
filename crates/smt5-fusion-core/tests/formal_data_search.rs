@@ -651,16 +651,40 @@ fn assert_search_matches_oracle(
     assert_same_routes(&actual, &expected, request);
     assert_replayable(data, context, request, &actual);
     assert_default_replayable(data, context, request, &selector);
-    match (selector.default_selection.as_ref(), expected.first()) {
-        (Some(selection), Some(expected)) => assert_eq!(
-            selection.materialize_route(data).unwrap().as_ref(),
-            expected,
-            "request={request:?}"
-        ),
+    let expected_score = expected.iter().map(|route| route_score(data, route)).min();
+    match (selector.default_selection.as_ref(), expected_score) {
+        (Some(selection), Some(expected_score)) => {
+            let route = selection.materialize_route(data).unwrap();
+            assert!(expected.contains(route.as_ref()), "request={request:?}");
+            assert_eq!(
+                route_score(data, &route),
+                expected_score,
+                "request={request:?}"
+            );
+        }
         (None, None) => {}
         _ => panic!("default-route mismatch for {request:?}"),
     }
     actual
+}
+
+fn route_score(data: &GameData, route: &Route) -> (u64, u32, u64) {
+    match route {
+        Route::Direct { demon } => (
+            0,
+            0,
+            u64::from(data.demons().get(*demon).unwrap().compendium_price),
+        ),
+        Route::Upgrade { previous, .. } => route_score(data, previous),
+        Route::Fusion { materials, .. } => {
+            materials
+                .iter()
+                .fold((1, 1, 0), |(count, depth, cost), material| {
+                    let child = route_score(data, &material.route);
+                    (count + child.0, depth.max(1 + child.1), cost + child.2)
+                })
+        }
+    }
 }
 
 fn assert_default_replayable(
