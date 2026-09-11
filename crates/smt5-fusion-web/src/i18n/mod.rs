@@ -6,10 +6,10 @@ use unic_langid::LanguageIdentifier;
 
 use crate::protocol::{DemonContent, DemonId, Race, SkillCategory, SkillId};
 
-const EN_US_SOURCE: &str = include_str!("../../locales/en-US.ftl");
-const JA_JP_SOURCE: &str = include_str!("../../locales/ja-JP.ftl");
-const ZH_CN_SOURCE: &str = include_str!("../../locales/zh-CN.ftl");
-const ZH_TW_SOURCE: &str = include_str!("../../locales/zh-TW.ftl");
+const EN_US_UI_SOURCE: &str = include_str!("../../locales/en-US/ui.ftl");
+const JA_JP_UI_SOURCE: &str = include_str!("../../locales/ja-JP/ui.ftl");
+const ZH_CN_UI_SOURCE: &str = include_str!("../../locales/zh-CN/ui.ftl");
+const ZH_TW_UI_SOURCE: &str = include_str!("../../locales/zh-TW/ui.ftl");
 
 #[cfg(target_arch = "wasm32")]
 use crate::build_info::STORAGE_KEYS;
@@ -528,10 +528,10 @@ struct Bundles {
 impl Bundles {
     fn new() -> Self {
         Self {
-            en_us: bundle(Locale::EnUs, EN_US_SOURCE),
-            ja_jp: bundle(Locale::JaJp, JA_JP_SOURCE),
-            zh_cn: bundle(Locale::ZhCn, ZH_CN_SOURCE),
-            zh_tw: bundle(Locale::ZhTw, ZH_TW_SOURCE),
+            en_us: bundle(Locale::EnUs, EN_US_UI_SOURCE),
+            ja_jp: bundle(Locale::JaJp, JA_JP_UI_SOURCE),
+            zh_cn: bundle(Locale::ZhCn, ZH_CN_UI_SOURCE),
+            zh_tw: bundle(Locale::ZhTw, ZH_TW_UI_SOURCE),
         }
     }
 
@@ -926,7 +926,12 @@ mod tests {
             .into_iter()
             .map(Message::id)
             .collect::<BTreeSet<_>>();
-        for source in [EN_US_SOURCE, JA_JP_SOURCE, ZH_CN_SOURCE, ZH_TW_SOURCE] {
+        for source in [
+            EN_US_UI_SOURCE,
+            JA_JP_UI_SOURCE,
+            ZH_CN_UI_SOURCE,
+            ZH_TW_UI_SOURCE,
+        ] {
             assert_eq!(resource_message_ids(source), expected);
         }
     }
