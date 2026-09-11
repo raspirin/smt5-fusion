@@ -341,7 +341,14 @@ impl Solver<'_> {
 
         if exact_fusion_depth == 0 {
             if let Some(target_level) = Self::direct_target_level(key.required_skills, &levels) {
-                choices.push(RouteChoice::Direct(DirectChoice { target_level }));
+                let estimated_macca = self
+                    .player_context
+                    .element_material_price(key.demon)
+                    .unwrap_or_else(|| u64::from(demon_meta.compendium_price));
+                choices.push(RouteChoice::Direct(DirectChoice {
+                    target_level,
+                    estimated_macca,
+                }));
             }
             return Ok(self.route_space(key, exact_fusion_depth, choices));
         }
@@ -617,6 +624,50 @@ mod tests {
         .unwrap();
 
         assert_eq!(assignments, vec![vec![0, 0, 0]]);
+    }
+
+    #[test]
+    fn direct_element_routes_use_the_cheapest_normal_recipe_price() {
+        let data = dataset::game_data();
+        let mut context = PlayerContext::default();
+        context.set_konohana_sakuya_dlc(true);
+        context.set_dagda_dlc(true);
+        context.prepare_direct_recipes(&data);
+        let selector = search(
+            &data,
+            &context,
+            &SearchRequest {
+                target: demon_ids::AEROS,
+                required_skills: Vec::new(),
+                max_fusion_depth: 0,
+            },
+        )
+        .unwrap();
+        let expected = context
+            .get_direct_recipes(demon_ids::AEROS)
+            .unwrap()
+            .iter()
+            .filter(|recipe| !recipe.is_special && recipe.materials.len() == 2)
+            .map(|recipe| {
+                recipe
+                    .materials
+                    .iter()
+                    .map(|material| {
+                        u64::from(data.demons().get(*material).unwrap().compendium_price)
+                    })
+                    .sum::<u64>()
+            })
+            .min()
+            .unwrap();
+
+        assert_eq!(
+            selector
+                .default_selection
+                .unwrap()
+                .score(&data)
+                .estimated_macca,
+            expected.into()
+        );
     }
 
     #[test]

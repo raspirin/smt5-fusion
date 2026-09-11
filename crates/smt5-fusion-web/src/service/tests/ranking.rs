@@ -1,23 +1,14 @@
 use super::*;
 
-fn measure(data: &GameData, selection: &RouteSelection) -> (u64, u32, u64) {
+fn measure(selection: &RouteSelection) -> (u64, u32, u64) {
     match selection.space.choice(selection.choice_index).unwrap() {
-        RouteChoice::Direct(_) => (
-            0,
-            0,
-            u64::from(
-                data.demons()
-                    .get(selection.space.demon)
-                    .unwrap()
-                    .compendium_price,
-            ),
-        ),
+        RouteChoice::Direct(direct) => (0, 0, direct.estimated_macca),
         RouteChoice::Fusion(_) => {
             selection
                 .materials
                 .iter()
                 .fold((1, 1, 0), |(count, depth, macca), child| {
-                    let child = measure(data, child);
+                    let child = measure(child);
                     (count + child.0, depth.max(child.1 + 1), macca + child.2)
                 })
         }
@@ -132,7 +123,7 @@ fn every_recipe_group_uses_its_best_skill_assignment() {
                 )
                 .unwrap()
                 .new_subtree;
-            let score = measure(&service.game_data, &selection);
+            let score = measure(&selection);
             let key = choice_key(space.fusion_depth, choice);
             expected
                 .entry(key)
@@ -178,7 +169,7 @@ fn nested_candidates_are_sorted_by_the_resulting_whole_tree() {
                     .unwrap();
                 changed.apply_update(update).unwrap();
             }
-            let actual = measure(&service.game_data, &changed);
+            let actual = measure(&changed);
             assert_eq!(score_tuple(&candidate.score), actual);
             for (index, other) in original.materials.iter().enumerate() {
                 if index != child_index {
@@ -188,8 +179,7 @@ fn nested_candidates_are_sorted_by_the_resulting_whole_tree() {
             scores.push(actual);
         }
         assert!(scores.windows(2).all(|pair| pair[0] <= pair[1]));
-        let outside_macca = measure(&service.game_data, &original).2
-            - measure(&service.game_data, &original.materials[child_index]).2;
+        let outside_macca = measure(&original).2 - measure(&original.materials[child_index]).2;
         assert!(outside_macca > 0);
         assert_option_metrics(&displayed, &scores, outside_macca);
     }
@@ -247,14 +237,14 @@ fn single_direct_option_has_a_positive_score_and_summoning_cost() {
     assert_eq!(displayed.options.len(), 1);
     assert_eq!(displayed.options[0].score, 1);
     let current = service.session.as_ref().unwrap().current.as_ref().unwrap();
-    assert_option_metrics(&displayed, &[measure(&service.game_data, current)], 0);
+    assert_option_metrics(&displayed, &[measure(current)], 0);
 }
 
-fn assert_tree_macca(data: &GameData, selection: &RouteSelection, tree: &RouteTreeNodeDto) {
-    assert_eq!(tree.estimated_macca, measure(data, selection).2.to_string());
+fn assert_tree_macca(selection: &RouteSelection, tree: &RouteTreeNodeDto) {
+    assert_eq!(tree.estimated_macca, measure(selection).2.to_string());
     assert_eq!(tree.children.len(), selection.materials.len());
     for (child, material) in tree.children.iter().zip(&selection.materials) {
-        assert_tree_macca(data, material, child);
+        assert_tree_macca(material, child);
     }
     if !tree.children.is_empty() {
         let children_macca = tree
@@ -275,13 +265,48 @@ fn tree_nodes(tree: &RouteTreeNodeDto) -> Vec<&RouteTreeNodeDto> {
 }
 
 #[test]
+fn direct_element_cost_uses_its_cheapest_normal_material_pair() {
+    let mut service = WorkerService::new();
+    let response = service.handle(search_request(demon_ids::AEROS, &[], 0));
+    let WorkerResponse::SearchCompleted { result, .. } = response else {
+        panic!("expected search result")
+    };
+    let expected = service
+        .player_context
+        .get_direct_recipes(demon_ids::AEROS)
+        .unwrap()
+        .iter()
+        .filter(|recipe| !recipe.is_special && recipe.materials.len() == 2)
+        .map(|recipe| {
+            recipe
+                .materials
+                .iter()
+                .map(|material| {
+                    u64::from(
+                        service
+                            .game_data
+                            .demons()
+                            .get(*material)
+                            .unwrap()
+                            .compendium_price,
+                    )
+                })
+                .sum::<u64>()
+        })
+        .min()
+        .unwrap();
+
+    assert_eq!(result.tree.unwrap().estimated_macca, expected.to_string());
+}
+
+#[test]
 fn node_and_recipe_costs_agree_before_and_after_subtree_replacement() {
     let mut service = search_service();
     select_deep_root(&mut service);
     let session = service.session.as_ref().unwrap();
     let current = session.current.as_ref().unwrap();
     let tree = service.tree(&session.selector, current, current, Vec::new());
-    assert_tree_macca(&service.game_data, current, &tree);
+    assert_tree_macca(current, &tree);
     let root_options = options(&mut service, &[]);
     assert_eq!(
         root_options
@@ -313,7 +338,7 @@ fn node_and_recipe_costs_agree_before_and_after_subtree_replacement() {
     let (candidates, candidate) = replacement.expect("a child must have an alternative recipe");
     let snapshot = select(&mut service, &candidates, candidate.option_id);
     let current = service.session.as_ref().unwrap().current.as_ref().unwrap();
-    assert_tree_macca(&service.game_data, current, &snapshot.tree);
+    assert_tree_macca(current, &snapshot.tree);
     let changed = &snapshot.tree.children[candidates.path[0] as usize];
     assert_eq!(changed.estimated_macca, candidate.estimated_macca);
     let updated = options(&mut service, &candidates.path);
@@ -335,7 +360,6 @@ fn node_and_recipe_costs_agree_before_and_after_subtree_replacement() {
         panic!("expected the default route");
     };
     assert_tree_macca(
-        &service.game_data,
         service.session.as_ref().unwrap().current.as_ref().unwrap(),
         &snapshot.tree,
     );
@@ -409,10 +433,7 @@ fn cached_options_keep_ids_stable_and_old_revisions_are_rejected() {
     let expected = score_tuple(&cached_choice.score);
     let selected = select(&mut service, &first, replacement.option_id);
     assert_eq!(
-        measure(
-            &service.game_data,
-            service.session.as_ref().unwrap().current.as_ref().unwrap()
-        ),
+        measure(service.session.as_ref().unwrap().current.as_ref().unwrap()),
         expected
     );
     assert_eq!(selected.selection_revision, first.selection_revision + 1);
@@ -463,7 +484,7 @@ fn current_options_preserve_manual_edits_and_reset_restores_the_ranked_default()
                 )
                 .unwrap();
             changed.apply_update(update).unwrap();
-            if measure(&service.game_data, &changed).1 < deep.space.fusion_depth {
+            if measure(&changed).1 < deep.space.fusion_depth {
                 replacement = Some((options.clone(), option_index as u32));
                 break;
             }
@@ -475,7 +496,7 @@ fn current_options_preserve_manual_edits_and_reset_restores_the_ranked_default()
     let (child_options, option_id) = replacement.expect("a shallower child must be available");
     select(&mut service, &child_options, option_id);
     let edited = service.session.as_ref().unwrap().current.clone().unwrap();
-    assert!(measure(&service.game_data, &edited).1 < edited.space.fusion_depth);
+    assert!(measure(&edited).1 < edited.space.fusion_depth);
     let root_options = options(&mut service, &[]);
     assert_eq!(
         service.session.as_ref().unwrap().current.as_ref(),
@@ -490,10 +511,7 @@ fn current_options_preserve_manual_edits_and_reset_restores_the_ranked_default()
         .iter()
         .find(|choice| choice.selected)
         .unwrap();
-    assert_eq!(
-        score_tuple(&current_option.score),
-        measure(&service.game_data, &edited)
-    );
+    assert_eq!(score_tuple(&current_option.score), measure(&edited));
     assert_eq!(
         root_options
             .options
@@ -501,7 +519,7 @@ fn current_options_preserve_manual_edits_and_reset_restores_the_ranked_default()
             .find(|option| option.selected)
             .unwrap()
             .estimated_macca,
-        measure(&service.game_data, &edited).2.to_string()
+        measure(&edited).2.to_string()
     );
     let current_id = root_options
         .options

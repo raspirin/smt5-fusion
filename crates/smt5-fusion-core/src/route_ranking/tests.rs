@@ -52,7 +52,15 @@ fn leaf(data: &GameData, id: u32) -> Rc<RouteSpace> {
         DemonId(id),
         Vec::new(),
         0,
-        vec![RouteChoice::Direct(DirectChoice { target_level: 1 })],
+        vec![RouteChoice::Direct(DirectChoice {
+            target_level: 1,
+            estimated_macca: data
+                .demons()
+                .get(DemonId(id))
+                .unwrap()
+                .compendium_price
+                .into(),
+        })],
     )
 }
 
@@ -152,8 +160,14 @@ fn upgrades_are_free_and_do_not_break_ties() {
         Vec::new(),
         0,
         vec![
-            RouteChoice::Direct(DirectChoice { target_level: 99 }),
-            RouteChoice::Direct(DirectChoice { target_level: 1 }),
+            RouteChoice::Direct(DirectChoice {
+                target_level: 99,
+                estimated_macca: 123_u8.into(),
+            }),
+            RouteChoice::Direct(DirectChoice {
+                target_level: 1,
+                estimated_macca: 123_u8.into(),
+            }),
         ],
     );
     assert_eq!(space.choice_score(&data, 0), space.choice_score(&data, 1));

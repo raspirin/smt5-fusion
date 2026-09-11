@@ -3,17 +3,19 @@ use std::collections::BTreeMap;
 use crate::{
     data::game_data::GameData,
     forward_fuse::{fuse, is_available},
-    model::{demon::DemonId, player_context::PlayerContext, recipe::RecipeMeta},
+    model::{demon::DemonId, player_context::PlayerContext, race::Race, recipe::RecipeMeta},
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct DirectRecipeIndex {
     recipes_by_result: BTreeMap<DemonId, Vec<RecipeMeta>>,
+    element_material_prices: BTreeMap<DemonId, u64>,
 }
 
 impl DirectRecipeIndex {
     pub(crate) fn build(game_data: &GameData, player_context: &PlayerContext) -> Self {
         let mut recipes_by_result = BTreeMap::<DemonId, Vec<RecipeMeta>>::new();
+        let mut element_material_prices = BTreeMap::<DemonId, u64>::new();
 
         for recipe in game_data.special_recipes().iter() {
             if is_available_special_recipe(game_data, player_context, recipe) {
@@ -44,14 +46,43 @@ impl DirectRecipeIndex {
                         materials: vec![left, right],
                         is_special: false,
                     });
+                if game_data
+                    .demons()
+                    .get(result)
+                    .is_some_and(|demon| matches!(demon.race, Race::Element(_)))
+                {
+                    let material_price = [left, right]
+                        .into_iter()
+                        .map(|material| {
+                            u64::from(
+                                game_data
+                                    .demons()
+                                    .get(material)
+                                    .expect("fusion material must exist")
+                                    .compendium_price,
+                            )
+                        })
+                        .sum();
+                    element_material_prices
+                        .entry(result)
+                        .and_modify(|price| *price = (*price).min(material_price))
+                        .or_insert(material_price);
+                }
             }
         }
 
-        Self { recipes_by_result }
+        Self {
+            recipes_by_result,
+            element_material_prices,
+        }
     }
 
     pub(crate) fn get(&self, result: DemonId) -> Option<&[RecipeMeta]> {
         self.recipes_by_result.get(&result).map(Vec::as_slice)
+    }
+
+    pub(crate) fn element_material_price(&self, result: DemonId) -> Option<u64> {
+        self.element_material_prices.get(&result).copied()
     }
 }
 
@@ -321,6 +352,61 @@ mod tests {
         assert!(same_race_count > 0);
         assert!(element_shift_count > 0);
         assert_eq!(special_material_counts, BTreeSet::from([2, 3, 4]));
+    }
+
+    #[test]
+    fn element_prices_use_the_cheapest_available_normal_material_pair() {
+        let data = dataset::game_data();
+
+        for (konohana_sakuya, dagda) in [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let context = player_context(konohana_sakuya, dagda);
+            let index = DirectRecipeIndex::build(&data, &context);
+            let mut element_count = 0;
+
+            for element in data
+                .demons()
+                .iter()
+                .filter(|demon| matches!(demon.race, Race::Element(_)))
+            {
+                element_count += 1;
+                let expected = index
+                    .get(element.id)
+                    .into_iter()
+                    .flatten()
+                    .filter(|recipe| !recipe.is_special && recipe.materials.len() == 2)
+                    .map(|recipe| {
+                        recipe
+                            .materials
+                            .iter()
+                            .map(|material| {
+                                u64::from(data.demons().get(*material).unwrap().compendium_price)
+                            })
+                            .sum::<u64>()
+                    })
+                    .min();
+                assert_eq!(index.element_material_price(element.id), expected);
+                assert!(expected.is_some());
+            }
+
+            assert_eq!(element_count, 4);
+        }
+    }
+
+    #[test]
+    fn special_recipes_do_not_set_element_material_prices() {
+        let data = game_data(
+            vec![demon(
+                1,
+                Race::Element(crate::model::race::Element::Aeros),
+                1,
+            )],
+            vec![special_recipe(1, &[1])],
+        );
+        let index = DirectRecipeIndex::build(&data, &PlayerContext::default());
+
+        assert!(index.get(DemonId(1)).is_some());
+        assert_eq!(index.element_material_price(DemonId(1)), None);
     }
 
     #[test]

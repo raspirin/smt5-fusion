@@ -7,6 +7,7 @@ use smt5_fusion_core::{
     model::{
         demon::{DemonContent, DemonMeta, SkillAcquisition},
         player_context::PlayerContext,
+        race::Race,
         route::{FusionSubroute, Route},
         route_space::{RouteChoice, RouteSelector, RouteSpace},
         skill::{Skill, SkillCategory, SkillId},
@@ -651,13 +652,16 @@ fn assert_search_matches_oracle(
     assert_same_routes(&actual, &expected, request);
     assert_replayable(data, context, request, &actual);
     assert_default_replayable(data, context, request, &selector);
-    let expected_score = expected.iter().map(|route| route_score(data, route)).min();
+    let expected_score = expected
+        .iter()
+        .map(|route| route_score(data, context, route))
+        .min();
     match (selector.default_selection.as_ref(), expected_score) {
         (Some(selection), Some(expected_score)) => {
             let route = selection.materialize_route(data).unwrap();
             assert!(expected.contains(route.as_ref()), "request={request:?}");
             assert_eq!(
-                route_score(data, &route),
+                route_score(data, context, &route),
                 expected_score,
                 "request={request:?}"
             );
@@ -668,19 +672,38 @@ fn assert_search_matches_oracle(
     actual
 }
 
-fn route_score(data: &GameData, route: &Route) -> (u64, u32, u64) {
+fn route_score(data: &GameData, context: &PlayerContext, route: &Route) -> (u64, u32, u64) {
     match route {
-        Route::Direct { demon } => (
-            0,
-            0,
-            u64::from(data.demons().get(*demon).unwrap().compendium_price),
-        ),
-        Route::Upgrade { previous, .. } => route_score(data, previous),
+        Route::Direct { demon } => {
+            let meta = data.demons().get(*demon).unwrap();
+            let estimated_macca = if matches!(meta.race, Race::Element(_)) {
+                context
+                    .get_direct_recipes(*demon)
+                    .into_iter()
+                    .flatten()
+                    .filter(|recipe| !recipe.is_special && recipe.materials.len() == 2)
+                    .map(|recipe| {
+                        recipe
+                            .materials
+                            .iter()
+                            .map(|material| {
+                                u64::from(data.demons().get(*material).unwrap().compendium_price)
+                            })
+                            .sum::<u64>()
+                    })
+                    .min()
+                    .unwrap_or_else(|| u64::from(meta.compendium_price))
+            } else {
+                u64::from(meta.compendium_price)
+            };
+            (0, 0, estimated_macca)
+        }
+        Route::Upgrade { previous, .. } => route_score(data, context, previous),
         Route::Fusion { materials, .. } => {
             materials
                 .iter()
                 .fold((1, 1, 0), |(count, depth, cost), material| {
-                    let child = route_score(data, &material.route);
+                    let child = route_score(data, context, &material.route);
                     (count + child.0, depth.max(1 + child.1), cost + child.2)
                 })
         }

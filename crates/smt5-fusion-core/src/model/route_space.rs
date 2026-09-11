@@ -45,6 +45,7 @@ pub enum RouteChoice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectChoice {
     pub target_level: u32,
+    pub estimated_macca: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -313,8 +314,8 @@ impl RouteSpace {
 }
 
 impl RouteSelection {
-    pub fn score(&self, game_data: &GameData) -> RouteScore {
-        route_ranking::actual_score(self, game_data)
+    pub fn score(&self, _game_data: &GameData) -> RouteScore {
+        route_ranking::actual_score(self)
     }
 
     pub fn materialize_route(&self, game_data: &GameData) -> Result<Rc<Route>, SelectionError> {

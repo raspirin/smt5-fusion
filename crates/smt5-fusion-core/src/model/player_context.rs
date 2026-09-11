@@ -45,6 +45,13 @@ impl PlayerContext {
             .expect("direct recipes must be prepared before querying")
             .get(target)
     }
+
+    pub(crate) fn element_material_price(&self, target: DemonId) -> Option<u64> {
+        self.direct_recipes
+            .as_ref()
+            .expect("direct recipes must be prepared before querying")
+            .element_material_price(target)
+    }
 }
 
 #[cfg(test)]

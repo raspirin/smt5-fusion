@@ -54,21 +54,18 @@ pub(crate) fn best_for_space(space: &RouteSpace, game_data: &GameData) -> Option
 
 pub(crate) fn score_choice(
     space: &RouteSpace,
-    game_data: &GameData,
+    _game_data: &GameData,
     choice_index: usize,
 ) -> Option<RouteScore> {
-    let choice = space.choice(choice_index)?;
-    let RouteChoice::Fusion(fusion) = choice else {
-        return (space.fusion_depth == 0).then(|| RouteScore {
-            fusion_count: BigUint::default(),
-            fusion_depth: 0,
-            estimated_macca: game_data
-                .demons()
-                .get(space.demon)
-                .expect("route-space demon must exist")
-                .compendium_price
-                .into(),
-        });
+    let fusion = match space.choice(choice_index)? {
+        RouteChoice::Direct(direct) => {
+            return (space.fusion_depth == 0).then(|| RouteScore {
+                fusion_count: BigUint::default(),
+                fusion_depth: 0,
+                estimated_macca: direct.estimated_macca.into(),
+            });
+        }
+        RouteChoice::Fusion(fusion) => fusion,
     };
     let required_depth = space.fusion_depth.checked_sub(1)?;
     let best = best_material_combination::<()>(fusion, required_depth)?;
@@ -133,19 +130,14 @@ fn best_material_combination<T: MaterialTrace>(
     memo[1].take()
 }
 
-pub(crate) fn actual_score(selection: &RouteSelection, game_data: &GameData) -> RouteScore {
+pub(crate) fn actual_score(selection: &RouteSelection) -> RouteScore {
     match selection
         .space
         .choice(selection.choice_index)
         .expect("selection choice must exist")
     {
-        RouteChoice::Direct(_) => RouteScore {
-            estimated_macca: game_data
-                .demons()
-                .get(selection.space.demon)
-                .expect("selection demon must exist")
-                .compendium_price
-                .into(),
+        RouteChoice::Direct(direct) => RouteScore {
+            estimated_macca: direct.estimated_macca.into(),
             ..RouteScore::default()
         },
         RouteChoice::Fusion(_) => {
@@ -155,7 +147,7 @@ pub(crate) fn actual_score(selection: &RouteSelection, game_data: &GameData) -> 
                 estimated_macca: BigUint::default(),
             };
             for material in &selection.materials {
-                let child = actual_score(material, game_data);
+                let child = actual_score(material);
                 score.fusion_count += child.fusion_count;
                 score.fusion_depth = score.fusion_depth.max(1 + child.fusion_depth);
                 score.estimated_macca += child.estimated_macca;
