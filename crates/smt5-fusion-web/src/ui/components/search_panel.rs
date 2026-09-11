@@ -44,14 +44,10 @@ pub(crate) fn SearchPanel() -> impl IntoView {
                 </button>
             </div>
 
-            <Show when=move || state.worker_status.get() == WorkerStatus::Loading || state.search_indicator_visible.get()>
+            <Show when=move || state.search_indicator_visible.get()>
                 <div class="inline-status" role="status">
                     <span class="spinner" aria-hidden="true"></span>
-                    {move || i18n.text(if state.worker_ready() {
-                        Message::SearchInProgress
-                    } else {
-                        Message::LoadingData
-                    })}
+                    {move || i18n.text(Message::SearchInProgress)}
                 </div>
             </Show>
             <Show when=move || state.worker_status.get() == WorkerStatus::Failed>

@@ -57,7 +57,6 @@ pub(super) struct AppState {
     pub(super) mutation_path: RwSignal<Option<Vec<u8>>>,
     pub(super) result: RwSignal<Option<Arc<SearchResultDto>>>,
     pub(super) options: RwSignal<Option<Arc<NodeOptionsDto>>>,
-    pub(super) options_indicator_visible: RwSignal<bool>,
     pub(super) panel_path: RwSignal<Option<Vec<u8>>>,
     pub(super) collapsed: RwSignal<BTreeSet<Vec<u8>>>,
     pub(super) error: RwSignal<Option<AppError>>,
@@ -94,7 +93,6 @@ impl AppState {
             mutation_path: RwSignal::new(None),
             result: RwSignal::new(None),
             options: RwSignal::new(None),
-            options_indicator_visible: RwSignal::new(false),
             panel_path: RwSignal::new(None),
             collapsed: RwSignal::new(BTreeSet::new()),
             error: RwSignal::new(None),
@@ -284,7 +282,6 @@ impl AppState {
                 }
                 batch(|| {
                     self.active_options.set(None);
-                    self.options_indicator_visible.set(false);
                     if self.current_session_matches(options.session_id, options.selection_revision)
                         && self.panel_path.get_untracked().as_ref() == Some(&options.path)
                     {
@@ -397,7 +394,6 @@ impl AppState {
             self.target_picker_open.set(false);
             self.close_skill_picker();
             self.options.set(None);
-            self.options_indicator_visible.set(false);
             self.option_query.set(String::new());
             self.option_active_index.set(0);
             self.active_options.set(Some(request_id));
@@ -408,7 +404,6 @@ impl AppState {
     pub(super) fn close_options(self) {
         self.panel_path.set(None);
         self.options.set(None);
-        self.options_indicator_visible.set(false);
         self.active_options.set(None);
         self.option_query.set(String::new());
         self.option_active_index.set(0);
@@ -419,14 +414,6 @@ impl AppState {
             && self.active_search.try_get_untracked() == Some(Some(request_id))
         {
             self.search_indicator_visible.set(true);
-        }
-    }
-
-    pub(super) fn reveal_options_indicator(self, request_id: u64) {
-        if self.active_options.try_get_untracked() == Some(Some(request_id))
-            && self.panel_path.try_get_untracked().flatten().is_some()
-        {
-            self.options_indicator_visible.set(true);
         }
     }
 
@@ -584,15 +571,12 @@ impl Controller {
         };
         let request_id = self.next_request();
         self.state.begin_options_request(request_id, path.clone());
-        if self.send(WorkerRequest::GetNodeOptions {
+        if !self.send(WorkerRequest::GetNodeOptions {
             request_id,
             session_id: result.session_id,
             selection_revision: result.selection_revision,
             path,
         }) {
-            let state = self.state;
-            schedule_loading_indicator(move || state.reveal_options_indicator(request_id));
-        } else {
             self.state.close_options();
         }
     }

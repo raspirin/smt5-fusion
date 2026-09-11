@@ -345,6 +345,39 @@ fn both_pickers_use_the_same_modal_lifecycle_outside_the_inert_workspace() {
 }
 
 #[test]
+fn only_explicit_searches_show_calculation_feedback() {
+    let search = include_str!("../components/search_panel.rs");
+    let source = include_str!("../components/source_picker.rs");
+    let state = include_str!("../state.rs");
+
+    assert!(search.contains("state.search_indicator_visible.get()"));
+    assert!(search.contains("Message::SearchInProgress"));
+    assert!(!search.contains("WorkerStatus::Loading"));
+    assert!(!source.contains("spinner"));
+    assert!(!source.contains("loading"));
+    assert_eq!(state.matches("schedule_loading_indicator(").count(), 3);
+    assert!(
+        state.contains(
+            "schedule_loading_indicator(move || state.reveal_search_indicator(request_id))"
+        )
+    );
+}
+
+#[test]
+fn recipe_dialog_is_stable_while_its_contents_are_computed() {
+    let source = include_str!("../components/source_picker.rs");
+
+    assert!(source.contains("state.panel_path.get().is_some()"));
+    assert!(source.contains("route_node_at_path(result.tree.as_ref()?, &path)"));
+    assert!(source.contains("title_demon.map(|demon|"));
+    assert!(source.contains("<Show when=move || state.options.get().is_some()>"));
+    assert!(
+        source.find("<PickerDialog").unwrap()
+            < source.find("state.options.get().is_some()").unwrap()
+    );
+}
+
+#[test]
 fn route_skill_groups_and_recipe_metrics_fit_narrow_cards() {
     assert_eq!(rule(".skill-block")["display"], "grid");
     assert_eq!(rule(".skill-block")["gap"], "0.45rem");

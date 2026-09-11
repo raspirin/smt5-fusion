@@ -108,7 +108,6 @@ pub enum Message {
     Search,
     SearchInProgress,
     Clear,
-    LoadingData,
     EmptyResultTitle,
     EmptyResultHelp,
     SearchResult,
@@ -146,7 +145,6 @@ pub enum Message {
     SkillCategory,
     NoMatchingSkill,
     NoMatchingPlan,
-    OptionsLoading,
     UsePlan,
     UnknownDemon,
     UnknownSkill,
@@ -229,7 +227,7 @@ pub enum Message {
 }
 
 impl Message {
-    pub const ALL: [Self; 140] = [
+    pub const ALL: [Self; 138] = [
         Self::SkipToMain,
         Self::AppTitle,
         Self::PreviewLabel,
@@ -252,7 +250,6 @@ impl Message {
         Self::Search,
         Self::SearchInProgress,
         Self::Clear,
-        Self::LoadingData,
         Self::EmptyResultTitle,
         Self::EmptyResultHelp,
         Self::SearchResult,
@@ -290,7 +287,6 @@ impl Message {
         Self::SkillCategory,
         Self::NoMatchingSkill,
         Self::NoMatchingPlan,
-        Self::OptionsLoading,
         Self::UsePlan,
         Self::UnknownDemon,
         Self::UnknownSkill,
@@ -396,7 +392,6 @@ impl Message {
             Self::Search => "search",
             Self::SearchInProgress => "search-in-progress",
             Self::Clear => "clear",
-            Self::LoadingData => "loading-data",
             Self::EmptyResultTitle => "empty-result-title",
             Self::EmptyResultHelp => "empty-result-help",
             Self::SearchResult => "search-result",
@@ -434,7 +429,6 @@ impl Message {
             Self::SkillCategory => "skill-category",
             Self::NoMatchingSkill => "no-matching-skill",
             Self::NoMatchingPlan => "no-matching-plan",
-            Self::OptionsLoading => "options-loading",
             Self::UsePlan => "use-plan",
             Self::UnknownDemon => "unknown-demon",
             Self::UnknownSkill => "unknown-skill",

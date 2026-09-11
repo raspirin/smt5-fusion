@@ -14,7 +14,7 @@ use crate::{
 use super::{
     selectors::{
         all_collapsible_paths, filtered_demons, filtered_options, filtered_skills, grouped_digits,
-        option_matches,
+        option_matches, route_node_at_path,
     },
     state::{AppError, AppState, Controller, PersistedForm},
 };
@@ -193,6 +193,11 @@ fn collapse_all_collects_every_node_with_materials() {
         all_collapsible_paths(&tree),
         BTreeSet::from([Vec::new(), vec![0]])
     );
+    assert_eq!(
+        route_node_at_path(&tree, &[0, 0]).map(|node| node.path.as_slice()),
+        Some([0, 0].as_slice())
+    );
+    assert!(route_node_at_path(&tree, &[2]).is_none());
 }
 
 #[test]
@@ -200,12 +205,10 @@ fn activating_the_current_recipe_closes_its_picker() {
     Owner::new().with(|| {
         let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
         state.begin_options_request(7, vec![0]);
-        state.reveal_options_indicator(7);
 
         Controller::new(state).select_option(0, true);
 
         assert!(state.panel_path.get_untracked().is_none());
-        assert!(!state.options_indicator_visible.get_untracked());
         assert!(state.active_options.get_untracked().is_none());
     });
 }
@@ -293,35 +296,25 @@ fn delayed_search_indicator_requires_the_active_request() {
 }
 
 #[test]
-fn delayed_options_indicator_requires_an_open_active_request() {
+fn recipe_requests_open_an_empty_dialog_without_a_calculation_indicator() {
     Owner::new().with(|| {
         let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
         state.begin_options_request(7, vec![0]);
+
+        assert!(untrack(|| state.modal_open()));
         assert_eq!(state.panel_path.get_untracked(), Some(vec![0]));
-        assert!(!state.options_indicator_visible.get_untracked());
-
-        state.reveal_options_indicator(6);
-        assert!(!state.options_indicator_visible.get_untracked());
-        state.reveal_options_indicator(7);
-        assert!(state.options_indicator_visible.get_untracked());
-
-        state.close_options();
-        state.reveal_options_indicator(7);
-        assert!(!state.options_indicator_visible.get_untracked());
-        assert!(state.active_options.get_untracked().is_none());
+        assert_eq!(state.active_options.get_untracked(), Some(7));
+        assert!(state.options.get_untracked().is_none());
+        assert!(!state.search_indicator_visible.get_untracked());
     });
 }
 
 #[test]
-fn switching_nodes_restarts_the_options_indicator_delay() {
+fn switching_nodes_keeps_the_new_dialog_empty_when_stale_options_arrive() {
     Owner::new().with(|| {
         let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
         state.begin_options_request(7, vec![0]);
-        state.reveal_options_indicator(7);
-        assert!(state.options_indicator_visible.get_untracked());
-
         state.begin_options_request(8, vec![1]);
-        state.reveal_options_indicator(7);
         state.handle_response(WorkerResponse::NodeOptions {
             request_id: 7,
             options: NodeOptionsDto {
@@ -332,78 +325,66 @@ fn switching_nodes_restarts_the_options_indicator_delay() {
                 options: Vec::new(),
             },
         });
+
+        assert!(untrack(|| state.modal_open()));
         assert_eq!(state.panel_path.get_untracked(), Some(vec![1]));
         assert_eq!(state.active_options.get_untracked(), Some(8));
         assert!(state.options.get_untracked().is_none());
-        assert!(!state.options_indicator_visible.get_untracked());
-
-        state.reveal_options_indicator(8);
-        assert!(state.options_indicator_visible.get_untracked());
     });
 }
 
 #[test]
-fn completed_options_requests_hide_the_indicator_and_ignore_late_timers() {
-    for delay_elapsed in [false, true] {
-        Owner::new().with(|| {
-            let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
-            let result = Arc::new(SearchResultDto {
-                session_id: 1,
-                selection_revision: 0,
-                input: SearchInputDto {
-                    target: DemonId(193),
-                    required_skills: Vec::new(),
-                    max_fusion_depth: 2,
-                    dlc: DlcSettingsDto::default(),
-                },
-                route_count: "1".to_owned(),
-                actual_fusion_depth: 0,
-                tree: None,
-            });
-            state.result.set(Some(Arc::clone(&result)));
-            state.session_available.set(true);
-            state.begin_options_request(7, Vec::new());
-            if delay_elapsed {
-                state.reveal_options_indicator(7);
-            }
-            assert_eq!(
-                state.options_indicator_visible.get_untracked(),
-                delay_elapsed
-            );
-
-            let options = NodeOptionsDto {
-                session_id: 1,
-                selection_revision: 0,
-                path: Vec::new(),
-                demon: DemonId(193),
-                options: vec![VisibleOptionDto {
-                    option_id: 0,
-                    selected: true,
-                    score: 1,
-                    estimated_macca: "100".to_owned(),
-                    acquisition: OptionAcquisitionDto::Direct {
-                        summon_level: 82,
-                        target_level: 82,
-                    },
-                }],
-            };
-            state.handle_response(WorkerResponse::NodeOptions {
-                request_id: 7,
-                options: options.clone(),
-            });
-            state.reveal_options_indicator(7);
-
-            assert!(!state.options_indicator_visible.get_untracked());
-            assert!(state.active_options.get_untracked().is_none());
-            assert_eq!(state.panel_path.get_untracked(), Some(Vec::new()));
-            assert_eq!(state.options.get_untracked().as_deref(), Some(&options));
-            assert!(Arc::ptr_eq(&state.result.get_untracked().unwrap(), &result));
+fn completed_options_requests_populate_the_open_dialog_once() {
+    Owner::new().with(|| {
+        let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
+        let result = Arc::new(SearchResultDto {
+            session_id: 1,
+            selection_revision: 0,
+            input: SearchInputDto {
+                target: DemonId(193),
+                required_skills: Vec::new(),
+                max_fusion_depth: 2,
+                dlc: DlcSettingsDto::default(),
+            },
+            route_count: "1".to_owned(),
+            actual_fusion_depth: 0,
+            tree: None,
         });
-    }
+        state.result.set(Some(Arc::clone(&result)));
+        state.session_available.set(true);
+        state.begin_options_request(7, Vec::new());
+
+        let options = NodeOptionsDto {
+            session_id: 1,
+            selection_revision: 0,
+            path: Vec::new(),
+            demon: DemonId(193),
+            options: vec![VisibleOptionDto {
+                option_id: 0,
+                selected: true,
+                score: 1,
+                estimated_macca: "100".to_owned(),
+                acquisition: OptionAcquisitionDto::Direct {
+                    summon_level: 82,
+                    target_level: 82,
+                },
+            }],
+        };
+        state.handle_response(WorkerResponse::NodeOptions {
+            request_id: 7,
+            options: options.clone(),
+        });
+
+        assert!(untrack(|| state.modal_open()));
+        assert!(state.active_options.get_untracked().is_none());
+        assert_eq!(state.panel_path.get_untracked(), Some(Vec::new()));
+        assert_eq!(state.options.get_untracked().as_deref(), Some(&options));
+        assert!(Arc::ptr_eq(&state.result.get_untracked().unwrap(), &result));
+    });
 }
 
 #[test]
-fn cancelled_options_requests_cannot_reveal_the_indicator() {
+fn cancelled_options_requests_close_the_empty_dialog() {
     let cancellations: [fn(&Controller); 4] = [
         Controller::clear_form,
         Controller::start_worker,
@@ -421,22 +402,16 @@ fn cancelled_options_requests_cannot_reveal_the_indicator() {
         },
     ];
     for cancel in cancellations {
-        for delay_elapsed in [false, true] {
-            Owner::new().with(|| {
-                let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
-                state.begin_options_request(7, vec![0]);
-                if delay_elapsed {
-                    state.reveal_options_indicator(7);
-                }
+        Owner::new().with(|| {
+            let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
+            state.begin_options_request(7, vec![0]);
 
-                cancel(&Controller::new(state));
-                state.reveal_options_indicator(7);
+            cancel(&Controller::new(state));
 
-                assert!(!state.options_indicator_visible.get_untracked());
-                assert!(state.panel_path.get_untracked().is_none());
-                assert!(state.active_options.get_untracked().is_none());
-            });
-        }
+            assert!(!untrack(|| state.modal_open()));
+            assert!(state.panel_path.get_untracked().is_none());
+            assert!(state.active_options.get_untracked().is_none());
+        });
     }
 }
 

@@ -236,7 +236,7 @@ fn returning_to_the_original_conditions_clears_the_stale_notice() {
 }
 
 #[test]
-fn filtering_during_options_loading_keeps_keyboard_focus_in_the_visible_list() {
+fn filtering_options_keeps_keyboard_focus_in_the_visible_list() {
     Owner::new().with(|| {
         let (controller, worker, mut service) = setup();
         let state = controller.state;
@@ -255,15 +255,10 @@ fn filtering_during_options_loading_keeps_keyboard_focus_in_the_visible_list() {
         for query in [query, "not-a-material".to_owned(), String::new()] {
             controller.open_options(Vec::new());
             let pending = request(&worker);
-            let WorkerRequest::GetNodeOptions { request_id, .. } = &pending else {
-                panic!()
-            };
-            state.reveal_options_indicator(*request_id);
             state.option_query.set(query.clone());
             state.option_active_index.set(0);
             worker.respond(service.handle(pending));
             assert_eq!(state.option_query.get_untracked(), query);
-            assert!(!state.options_indicator_visible.get_untracked());
             let visible = untrack(|| filtered_options(state));
             let active = untrack(|| source_active_descendant(state));
             if visible.is_empty() {

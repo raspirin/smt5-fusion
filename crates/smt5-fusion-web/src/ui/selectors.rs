@@ -159,6 +159,17 @@ fn option_search_score(
     }
 }
 
+pub(super) fn route_node_at_path<'a>(
+    tree: &'a RouteTreeNodeDto,
+    path: &[u8],
+) -> Option<&'a RouteTreeNodeDto> {
+    let mut node = tree;
+    for &index in path {
+        node = node.children.get(usize::from(index))?;
+    }
+    (node.path == path).then_some(node)
+}
+
 pub(super) fn all_collapsible_paths(tree: &RouteTreeNodeDto) -> BTreeSet<Vec<u8>> {
     fn visit(node: &RouteTreeNodeDto, paths: &mut BTreeSet<Vec<u8>>) {
         if !node.children.is_empty() {

@@ -8,7 +8,9 @@ use crate::{
 use super::{
     super::{
         events::focus_picker_on_open,
-        selectors::{demon, filtered_options, grouped_digits, source_active_descendant},
+        selectors::{
+            demon, filtered_options, grouped_digits, route_node_at_path, source_active_descendant,
+        },
         state::Controller,
     },
     acquisition::{AcquisitionKind, MethodLabel},
@@ -41,17 +43,20 @@ fn SourcePickerDialog() -> impl IntoView {
     let state = controller.state;
     let i18n = state.i18n;
     let keyboard_controller = controller.clone();
-    let return_focus_id = state
-        .panel_path
-        .get_untracked()
-        .map(|path| recipe_trigger_id(&path));
+    let panel_path = state.panel_path.get_untracked();
+    let return_focus_id = panel_path.as_deref().map(recipe_trigger_id);
+    let title_demon = panel_path.and_then(|path| {
+        state.result.get_untracked().and_then(|result| {
+            route_node_at_path(result.tree.as_ref()?, &path).map(|node| node.demon)
+        })
+    });
     let input_ref = NodeRef::<leptos::html::Input>::new();
     input_ref.on_load(|input| focus_picker_on_open(&input));
     view! {
         <PickerDialog
             heading_id="node-options-heading"
-            title=Signal::derive(move || state.options.get().map(|options| {
-                i18n.options_title(&i18n.demon_name(options.demon))
+            title=Signal::derive(move || title_demon.map(|demon| {
+                i18n.options_title(&i18n.demon_name(demon))
             }).unwrap_or_else(|| i18n.text(Message::ChoosePlan)))
             on_close=Callback::new(move |()| state.close_options())
             return_focus_id
@@ -100,12 +105,6 @@ fn SourcePickerDialog() -> impl IntoView {
                     }
                 }
             />
-            <Show when=move || state.options_indicator_visible.get()>
-                <div class="panel-loading" role="status">
-                    <span class="spinner" aria-hidden="true"></span>
-                    {move || i18n.text(Message::OptionsLoading)}
-                </div>
-            </Show>
             <Show when=move || state.options.get().is_some()>
                 <div id="node-option-list" class="picker-list" role="listbox">
                     {move || {
