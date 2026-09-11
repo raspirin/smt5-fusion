@@ -5,7 +5,7 @@ use leptos::prelude::*;
 use crate::{
     i18n::{I18n, Locale},
     protocol::{
-        AcquisitionDto, DemonId, DlcSettingsDto, NodeOptionsDto, OptionAcquisitionDto,
+        AcquisitionDto, DemonId, DlcSettingsDto, NodeOptionsDto, OptionAcquisitionDto, Race,
         RouteTreeNodeDto, SearchInputDto, SearchResultDto, SkillId, VisibleOptionDto,
         WorkerFailureCode, WorkerFailureDto, WorkerResponse,
     },
@@ -14,7 +14,7 @@ use crate::{
 use super::{
     selectors::{
         all_collapsible_paths, filtered_demons, filtered_options, filtered_skills, grouped_digits,
-        option_matches, route_node_at_path,
+        option_matches, route_contains_direct_element, route_node_at_path,
     },
     state::{AppError, AppState, Controller, PersistedForm},
 };
@@ -198,6 +198,65 @@ fn collapse_all_collects_every_node_with_materials() {
         Some([0, 0].as_slice())
     );
     assert!(route_node_at_path(&tree, &[2]).is_none());
+}
+
+#[test]
+fn element_price_note_follows_the_current_route_tree() {
+    let WorkerResponse::Ready { catalog } = WorkerService::new().ready() else {
+        unreachable!()
+    };
+    let element = catalog
+        .demons
+        .iter()
+        .find(|demon| matches!(demon.race, Race::Element(_)))
+        .unwrap()
+        .id;
+    let ordinary = catalog
+        .demons
+        .iter()
+        .find(|demon| !matches!(demon.race, Race::Element(_)))
+        .unwrap()
+        .id;
+    let direct = || AcquisitionDto::Direct {
+        summon_level: 1,
+        target_level: 1,
+    };
+    let node = |path: Vec<u8>, demon, acquisition, children| RouteTreeNodeDto {
+        path,
+        demon,
+        base_level: 1,
+        final_level: 1,
+        estimated_macca: "0".to_owned(),
+        required_skills: Vec::new(),
+        upgrade_skills: Vec::new(),
+        acquisition,
+        can_change_recipe: false,
+        children,
+    };
+
+    let ordinary_route = node(Vec::new(), ordinary, direct(), Vec::new());
+    assert!(!route_contains_direct_element(&ordinary_route, &catalog));
+
+    let route_with_element = node(
+        Vec::new(),
+        ordinary,
+        direct(),
+        vec![node(vec![0], element, direct(), Vec::new())],
+    );
+    assert!(route_contains_direct_element(&route_with_element, &catalog));
+
+    let fused_element = node(
+        Vec::new(),
+        element,
+        AcquisitionDto::Fusion {
+            is_special: false,
+            fusion_level: 1,
+            target_level: 1,
+            materials: Vec::new(),
+        },
+        Vec::new(),
+    );
+    assert!(!route_contains_direct_element(&fused_element, &catalog));
 }
 
 #[test]

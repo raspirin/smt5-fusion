@@ -978,39 +978,23 @@ h3 {
     font-size: 0.76rem;
 }
 
-.stale-notice {
-    margin: 0 0 0.85rem;
-    padding: 0.5rem 0.65rem;
-    border-left: 3px solid var(--gold);
-    background: var(--gold-soft);
-    color: var(--warning-ink);
-    font-size: 0.77rem;
-}
-
-.result-metrics {
-    display: grid;
-    min-width: min(100%, 360px);
-    flex: 1 1 460px;
-    grid-template-columns: minmax(0, 1fr) minmax(120px, 0.2fr);
-    gap: 1rem;
-}
-
-.result-metrics > div {
+.result-total {
     min-width: 0;
+    flex: 1 1 240px;
 }
 
-.result-metrics span,
-.result-metrics strong {
+.result-total span,
+.result-total strong {
     display: block;
 }
 
-.result-metrics span {
+.result-total span {
     margin-bottom: 0.18rem;
     color: var(--ink-soft);
     font-size: 0.7rem;
 }
 
-.result-metrics strong {
+.result-total strong {
     overflow-wrap: anywhere;
     font-size: 1rem;
     font-weight: 700;
@@ -1018,16 +1002,21 @@ h3 {
     font-variant-numeric: tabular-nums;
 }
 
-.depth-metric {
-    padding-left: 1rem;
-    border-left: 1px solid var(--line);
+.result-notices {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.85rem;
 }
 
-.count-note {
-    max-width: 72ch;
-    margin: 0.35rem 0 0;
-    color: var(--ink-soft);
-    font-size: 0.72rem;
+.result-notice {
+    margin: 0;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--gold);
+    border-radius: var(--radius-small);
+    background: var(--gold-soft);
+    color: var(--warning-ink);
+    font-size: 0.77rem;
+    line-height: 1.5;
 }
 
 .route-count {
@@ -1770,17 +1759,6 @@ body:has(.modal-backdrop) {
 
     .result-actions .button {
         flex: 1 1 auto;
-    }
-
-    .result-metrics {
-        grid-template-columns: 1fr;
-        gap: 0.7rem;
-    }
-
-    .depth-metric {
-        padding: 0.7rem 0 0;
-        border-top: 1px solid var(--line);
-        border-left: 0;
     }
 
     .skill-picker-filters {

@@ -112,9 +112,8 @@ pub enum Message {
     EmptyResultHelp,
     SearchResult,
     RouteCount,
-    RouteCountHelp,
+    ElementPriceNote,
     RouteTreeLabel,
-    ActualDepth,
     DepthValue,
     ExpandAll,
     CollapseAll,
@@ -227,7 +226,7 @@ pub enum Message {
 }
 
 impl Message {
-    pub const ALL: [Self; 138] = [
+    pub const ALL: [Self; 137] = [
         Self::SkipToMain,
         Self::AppTitle,
         Self::PreviewLabel,
@@ -254,9 +253,8 @@ impl Message {
         Self::EmptyResultHelp,
         Self::SearchResult,
         Self::RouteCount,
-        Self::RouteCountHelp,
+        Self::ElementPriceNote,
         Self::RouteTreeLabel,
-        Self::ActualDepth,
         Self::DepthValue,
         Self::ExpandAll,
         Self::CollapseAll,
@@ -396,9 +394,8 @@ impl Message {
             Self::EmptyResultHelp => "empty-result-help",
             Self::SearchResult => "search-result",
             Self::RouteCount => "route-count",
-            Self::RouteCountHelp => "route-count-help",
+            Self::ElementPriceNote => "element-price-note",
             Self::RouteTreeLabel => "route-tree-label",
-            Self::ActualDepth => "actual-depth",
             Self::DepthValue => "depth-value",
             Self::ExpandAll => "expand-all",
             Self::CollapseAll => "collapse-all",

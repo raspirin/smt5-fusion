@@ -24,9 +24,8 @@ empty-result-title = Your fusion route will appear here
 empty-result-help = Select a target demon and required skills, then calculate.
 search-result = Current Route
 route-count = Total Legal Routes
-route-count-help = The total includes every legal concrete route, including different skill sources, material routes, and exact depths.
+element-price-note = This route contains an Element. Its purchase price is calculated from the cheapest material pair that can fuse into that Element.
 route-tree-label = Current fusion route tree
-actual-depth = Current Route Depth
 depth-value =
     { $depth ->
         [one] { $depth } level

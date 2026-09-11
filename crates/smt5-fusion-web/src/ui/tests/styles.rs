@@ -4,6 +4,7 @@ const SOURCE: &str = include_str!("../../../index.html");
 const CSS: &str = include_str!("../../../style.css");
 const THEME: &str = include_str!("../theme.rs");
 const PAGE: &str = include_str!("../pages/calculator.rs");
+const RESULT_PANEL: &str = include_str!("../components/result_panel.rs");
 
 type Palette = BTreeMap<&'static str, &'static str>;
 
@@ -468,6 +469,43 @@ fn card_metrics_align_right_and_node_levels_stay_inline() {
     assert!(method.contains("i18n.text(Message::Macca)"));
     let options = include_str!("../components/source_picker.rs");
     assert!(options.contains("<span class=\"route-metrics\">"));
+}
+
+#[test]
+fn result_notices_stack_below_the_route_count_and_actions() {
+    let summary = RESULT_PANEL
+        .split_once("<div class=\"result-summary card\">")
+        .unwrap()
+        .1
+        .split_once("{match tree")
+        .unwrap()
+        .0;
+    assert!(
+        summary.find("result-summary-layout").unwrap() < summary.find("result-notices").unwrap()
+    );
+    assert_eq!(
+        summary.matches("class=\"button button-secondary\"").count(),
+        3
+    );
+    assert_eq!(summary.matches("class=\"result-notice\"").count(), 3);
+    let stale = summary.find("Message::StaleResult").unwrap();
+    let read_only = summary.find("Message::ResultReadOnly").unwrap();
+    let element_price = summary.find("Message::ElementPriceNote").unwrap();
+    assert!(stale < read_only && read_only < element_price);
+    assert!(!summary.contains("Message::ActualDepth"));
+    assert!(!summary.contains("Message::RouteCountHelp"));
+
+    let notices = rule(".result-notices");
+    assert_eq!(notices["display"], "grid");
+    assert_eq!(notices["gap"], "0.5rem");
+    assert_eq!(notices["margin-top"], "0.85rem");
+    assert!(!notices.contains_key("position"));
+
+    let notice = rule(".result-notice");
+    assert_eq!(notice["margin"], "0");
+    assert_eq!(notice["border"], "1px solid var(--gold)");
+    assert_eq!(notice["border-radius"], "var(--radius-small)");
+    assert_eq!(notice["background"], "var(--gold-soft)");
 }
 
 #[test]

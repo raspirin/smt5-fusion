@@ -6,7 +6,7 @@ use crate::{
     i18n::{Locale, skill_category_slug},
     protocol::{
         CatalogDto, DemonCatalogDto, DemonContent, DemonId, DlcSettingsDto, OptionAcquisitionDto,
-        RouteTreeNodeDto, SkillCatalogDto, SkillCategory, SkillId, VisibleOptionDto,
+        Race, RouteTreeNodeDto, SkillCatalogDto, SkillCategory, SkillId, VisibleOptionDto,
     },
 };
 
@@ -168,6 +168,17 @@ pub(super) fn route_node_at_path<'a>(
         node = node.children.get(usize::from(index))?;
     }
     (node.path == path).then_some(node)
+}
+
+pub(super) fn route_contains_direct_element(tree: &RouteTreeNodeDto, catalog: &CatalogDto) -> bool {
+    (matches!(
+        tree.acquisition,
+        crate::protocol::AcquisitionDto::Direct { .. }
+    ) && demon(catalog, tree.demon).is_some_and(|demon| matches!(demon.race, Race::Element(_))))
+        || tree
+            .children
+            .iter()
+            .any(|child| route_contains_direct_element(child, catalog))
 }
 
 pub(super) fn all_collapsible_paths(tree: &RouteTreeNodeDto) -> BTreeSet<Vec<u8>> {
