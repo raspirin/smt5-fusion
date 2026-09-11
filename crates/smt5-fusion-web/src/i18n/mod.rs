@@ -91,6 +91,9 @@ pub enum Message {
     PreviewLabel,
     PageTitle,
     PageDescription,
+    ProjectLinks,
+    SourceRepository,
+    SubmitFeedback,
     LanguageSelector,
     ThemeSelector,
     ThemeAuto,
@@ -226,12 +229,15 @@ pub enum Message {
 }
 
 impl Message {
-    pub const ALL: [Self; 137] = [
+    pub const ALL: [Self; 140] = [
         Self::SkipToMain,
         Self::AppTitle,
         Self::PreviewLabel,
         Self::PageTitle,
         Self::PageDescription,
+        Self::ProjectLinks,
+        Self::SourceRepository,
+        Self::SubmitFeedback,
         Self::LanguageSelector,
         Self::ThemeSelector,
         Self::ThemeAuto,
@@ -373,6 +379,9 @@ impl Message {
             Self::PreviewLabel => "preview-label",
             Self::PageTitle => "page-title",
             Self::PageDescription => "page-description",
+            Self::ProjectLinks => "project-links",
+            Self::SourceRepository => "source-repository",
+            Self::SubmitFeedback => "submit-feedback",
             Self::LanguageSelector => "language-selector",
             Self::ThemeSelector => "theme-selector",
             Self::ThemeAuto => "theme-auto",

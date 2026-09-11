@@ -11,6 +11,9 @@ use super::super::{
     theme::ThemeState,
 };
 
+const SOURCE_REPOSITORY_URL: &str = "https://github.com/raspirin/smt5-fusion";
+const FEEDBACK_URL: &str = "https://github.com/raspirin/smt5-fusion/issues/new";
+
 fn preview_tape(i18n: I18n) -> impl IntoView {
     #[cfg(feature = "preview")]
     {
@@ -55,6 +58,21 @@ pub fn App() -> impl IntoView {
                 <SearchPanel />
                 <ResultPanel />
             </main>
+            <footer class="site-footer" inert=move || state.modal_open()>
+                <nav class="footer-links" aria-label=move || i18n.text(Message::ProjectLinks)>
+                    <a
+                        href=SOURCE_REPOSITORY_URL
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        {move || i18n.text(Message::SourceRepository)}
+                    </a>
+                    <span aria-hidden="true">"·"</span>
+                    <a href=FEEDBACK_URL target="_blank" rel="noopener noreferrer">
+                        {move || i18n.text(Message::SubmitFeedback)}
+                    </a>
+                </nav>
+            </footer>
             <SkillPicker />
             <SourcePicker />
             <ErrorNotice />

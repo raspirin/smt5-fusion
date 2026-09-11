@@ -346,7 +346,7 @@ fn both_pickers_use_the_same_modal_lifecycle_outside_the_inert_workspace() {
     let lock = rule("html:has(.modal-backdrop), body:has(.modal-backdrop)");
     assert_eq!(lock["overflow"], "hidden");
     assert_eq!(lock["overscroll-behavior"], "none");
-    assert_eq!(PAGE.matches("inert=move || state.modal_open()").count(), 3);
+    assert_eq!(PAGE.matches("inert=move || state.modal_open()").count(), 4);
     for picker in ["<SkillPicker />", "<SourcePicker />"] {
         assert!(PAGE.find("</main>").unwrap() < PAGE.find(picker).unwrap());
     }
@@ -528,6 +528,44 @@ fn touch_and_narrow_sidebars_grow_with_content_instead_of_scrolling_internally()
         assert_eq!(panel["overflow"], "visible");
         assert_eq!(panel["scrollbar-gutter"], "auto");
     }
+}
+
+#[test]
+fn project_links_form_a_plain_footer_below_the_workspace() {
+    let footer_start = PAGE.find("<footer class=\"site-footer\"").unwrap();
+    let footer_end = PAGE[footer_start..].find("</footer>").unwrap() + footer_start;
+    let footer = &PAGE[footer_start..footer_end];
+    assert!(PAGE.find("</main>").unwrap() < footer_start);
+    assert!(footer_end < PAGE.find("<SkillPicker />").unwrap());
+    assert!(footer.contains("inert=move || state.modal_open()"));
+    assert!(footer.contains("aria-label=move || i18n.text(Message::ProjectLinks)"));
+    assert!(
+        footer.find("Message::SourceRepository").unwrap()
+            < footer.find("Message::SubmitFeedback").unwrap()
+    );
+    assert_eq!(footer.matches("target=\"_blank\"").count(), 2);
+    assert_eq!(footer.matches("rel=\"noopener noreferrer\"").count(), 2);
+    assert!(PAGE.contains(
+        "const SOURCE_REPOSITORY_URL: &str = \"https://github.com/raspirin/smt5-fusion\";"
+    ));
+    assert!(PAGE.contains(
+        "const FEEDBACK_URL: &str = \"https://github.com/raspirin/smt5-fusion/issues/new\";"
+    ));
+
+    let shell = rule(".app-shell");
+    assert_eq!(shell["display"], "flex");
+    assert_eq!(shell["flex-direction"], "column");
+    assert_eq!(rule(".workspace")["flex"], "1 0 auto");
+    let footer_style = rule(".site-footer");
+    for property in ["border", "border-radius", "background", "box-shadow"] {
+        assert!(!footer_style.contains_key(property));
+    }
+    let links = rule(".footer-links");
+    assert_eq!(links["display"], "flex");
+    assert_eq!(links["flex-wrap"], "wrap");
+    assert_eq!(links["justify-content"], "center");
+    assert_eq!(links["font-size"], "0.84rem");
+    assert_eq!(rule(".footer-links a")["min-height"], "44px");
 }
 
 #[test]

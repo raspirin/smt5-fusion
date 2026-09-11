@@ -264,7 +264,9 @@ h3 {
 }
 
 .app-shell {
+    display: flex;
     min-height: 100vh;
+    flex-direction: column;
 }
 
 .site-header {
@@ -491,11 +493,49 @@ h3 {
 
 .workspace {
     display: grid;
+    width: min(1500px, 100%);
+    flex: 1 0 auto;
     grid-template-columns: minmax(290px, 360px) minmax(0, 1fr);
     gap: 1.5rem;
-    width: min(1500px, 100%);
     margin: 0 auto;
     padding: 1.5rem;
+}
+
+.site-footer {
+    width: min(1500px, 100%);
+    margin: 0 auto;
+    padding: 0.25rem 1.5rem calc(1.25rem + env(safe-area-inset-bottom));
+}
+
+.footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0 0.6rem;
+    color: var(--ink-faint);
+    font-size: 0.84rem;
+}
+
+.footer-links a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    color: var(--ink-soft);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    text-underline-offset: 0.22em;
+}
+
+.footer-links a:hover,
+.footer-links a:focus-visible {
+    color: var(--orange-dark);
+    text-decoration-color: currentcolor;
+}
+
+.footer-links span {
+    color: var(--ink-faint);
 }
 
 .card {
