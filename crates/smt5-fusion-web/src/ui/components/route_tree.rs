@@ -1,15 +1,14 @@
-use leptos::prelude::*;
-use wasm_bindgen::JsCast;
-
 use crate::{
     i18n::{Message, skill_category_slug},
-    protocol::{DemonId, RouteTreeNodeDto, SkillId},
+    protocol::{RouteTreeNodeDto, SkillId, UpgradeSkillDto},
 };
+use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 use super::{
     super::{
         events::focus_current_target,
-        selectors::{demon, skill},
+        selectors::{demon, grouped_digits, skill},
         state::{AppState, Controller},
     },
     acquisition::{AcquisitionKind, MethodLabel},
@@ -36,12 +35,14 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
         demon: demon_id,
         base_level,
         final_level,
+        estimated_macca,
         required_skills,
         upgrade_skills,
         acquisition,
         can_change_recipe,
         children,
     } = node;
+    let macca = grouped_digits(&estimated_macca);
     let aria_path = path.clone();
     let option_path = path.clone();
     let popover_path = path.clone();
@@ -65,10 +66,17 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
     let collapse_button = has_children.then(|| view! { <CollapseButton path=path.clone() /> });
     let required_view = (!required_skills.is_empty()).then(|| {
         view! {
-            <div class="skill-block">
-                <div class="skill-badges" aria-label=move || i18n.text(required_label)>
-                    {required_skills.iter().copied().map(|id| skill_badge(state, id)).collect_view()}
-                </div>
+            <div class="skill-block" role="group" aria-label=move || i18n.text(required_label)>
+                {skill_groups(&required_skills, &children).into_iter().map(|(source, skills)| view! {
+                    <div class="skill-source-group skill-badges">
+                        <span class="meta-label">{move || i18n.text(source)}</span>
+                        {skills.into_iter().map(|id| {
+                            let learning = (source == Message::OwnSkills)
+                                .then(|| skill_learning(id, &upgrade_skills));
+                            skill_badge(state, id, learning)
+                        }).collect_view()}
+                    </div>
+                }).collect_view()}
             </div>
         }
     });
@@ -99,17 +107,11 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
                 </div>
                 <div class="node-method">
                     <MethodLabel kind=acquisition_kind upgraded={final_level > base_level} />
-                    {(final_level == base_level).then(|| view! {
-                        <LevelFlow initial_level=final_level final_level=final_level />
-                    })}
+                    <LevelFlow initial_level=base_level final_level />
+                    <span class="route-metrics">
+                        <span class="route-metric">{move || i18n.text(Message::Macca)}" "<strong>{macca}</strong></span>
+                    </span>
                 </div>
-                <AcquisitionStages
-                    demon=demon_id
-                    base_level
-                    final_level
-                    acquisition_kind
-                    upgrade_skills
-                />
                 {required_view}
                 {can_change_recipe.then(|| view! {
                     <div class="node-action-wrap">
@@ -193,52 +195,6 @@ fn options_placement(
 }
 
 #[component]
-fn AcquisitionStages(
-    demon: DemonId,
-    base_level: u32,
-    final_level: u32,
-    acquisition_kind: AcquisitionKind,
-    upgrade_skills: Vec<crate::protocol::UpgradeSkillDto>,
-) -> impl IntoView {
-    let i18n = expect_context::<Controller>().state.i18n;
-    (final_level > base_level).then(|| {
-        view! {
-            <div class="state-flow" aria-label=move || i18n.text(Message::LevelUpSkills)>
-                <div class="state-card final-state">
-                    <div class="state-card-heading">
-                        <span class="state-label">{move || i18n.text(Message::FinalState)}</span>
-                        <strong class="demon-name">{move || i18n.demon_name(demon)}</strong>
-                    </div>
-                    <span>"Lv."{final_level}</span>
-                    {(!upgrade_skills.is_empty()).then(|| view! {
-                        <div class="level-skills">
-                            <span class="meta-label">{move || i18n.text(Message::LevelUpSkills)}</span>
-                            {upgrade_skills.into_iter().map(|learned| view! {
-                                <span class="level-skill">
-                                    <b>{format!("Lv.{}", learned.level)}</b>
-                                    {move || i18n.skill_name(learned.skill)}
-                                </span>
-                            }).collect_view()}
-                        </div>
-                    })}
-                </div>
-                <span class="state-arrow" aria-hidden="true">"←"</span>
-                <div class="state-card initial-state">
-                    <div class="state-card-heading">
-                        <span class="state-label">{move || i18n.text(Message::InitialState)}</span>
-                        <strong class="demon-name">{move || i18n.demon_name(demon)}</strong>
-                    </div>
-                    <div class="state-source">
-                        <MethodLabel kind=acquisition_kind upgraded=false />
-                        <LevelFlow initial_level=base_level final_level=base_level />
-                    </div>
-                </div>
-            </div>
-        }
-    })
-}
-
-#[component]
 fn CollapseButton(path: Vec<u8>) -> impl IntoView {
     let state = expect_context::<Controller>().state;
     let i18n = state.i18n;
@@ -278,17 +234,60 @@ fn RouteNodeChildren(path: Vec<u8>, nodes: Vec<RouteTreeNodeDto>) -> AnyView {
     .into_any()
 }
 
-fn skill_badge(state: AppState, skill_id: SkillId) -> impl IntoView {
+fn skill_groups(
+    required_skills: &[SkillId],
+    children: &[RouteTreeNodeDto],
+) -> Vec<(Message, Vec<SkillId>)> {
+    let (own, inherited): (Vec<_>, Vec<_>) = required_skills.iter().copied().partition(|id| {
+        !children
+            .iter()
+            .any(|child| child.required_skills.contains(id))
+    });
+    [
+        (Message::OwnSkills, own),
+        (Message::InheritedSkills, inherited),
+    ]
+    .into_iter()
+    .filter(|(_, skills)| !skills.is_empty())
+    .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SkillLearning {
+    Initial,
+    Level(u32),
+}
+
+fn skill_learning(skill_id: SkillId, upgrade_skills: &[UpgradeSkillDto]) -> SkillLearning {
+    upgrade_skills
+        .iter()
+        .find(|learned| learned.skill == skill_id)
+        .map_or(SkillLearning::Initial, |learned| {
+            SkillLearning::Level(learned.level)
+        })
+}
+
+fn skill_badge(
+    state: AppState,
+    skill_id: SkillId,
+    learning: Option<SkillLearning>,
+) -> impl IntoView {
     let i18n = state.i18n;
     let category = state
         .catalog
         .get_untracked()
         .and_then(|catalog| skill(&catalog, skill_id).map(|skill| skill.category));
     view! {
-        <span class=category.map(|category| format!("skill-badge kind-{}", skill_category_slug(category))).unwrap_or_else(|| "skill-badge".to_owned())>
+        <span
+            class=category.map(|category| format!("skill-badge kind-{}", skill_category_slug(category))).unwrap_or_else(|| "skill-badge".to_owned())
+            title=move || category.map(|category| i18n.skill_category_name(category))
+        >
             <strong>{move || i18n.skill_name(skill_id)}</strong>
-            {category.map(|category| view! {
-                <span>{move || i18n.skill_category_name(category)}</span>
+            {learning.map(|learning| view! {
+                <span class="skill-learning">{move || match learning {
+                    SkillLearning::Initial => i18n.text(Message::InitialSkill),
+                    SkillLearning::Level(level) => format!("Lv.{level}"),
+                }}</span>
             })}
         </span>
     }
@@ -296,7 +295,118 @@ fn skill_badge(state: AppState, skill_id: SkillId) -> impl IntoView {
 
 #[cfg(test)]
 mod tests {
-    use super::{OptionsPlacement, options_placement};
+    use smt5_fusion_core::dataset::{demon_ids, skill_ids};
+
+    use super::{OptionsPlacement, SkillLearning, options_placement, skill_groups, skill_learning};
+    use crate::{
+        i18n::Message,
+        protocol::{
+            AcquisitionDto, RouteTreeNodeDto, SearchInputDto, SkillId, WorkerRequest,
+            WorkerResponse,
+        },
+        service::WorkerService,
+    };
+
+    fn pixie_tree(skills: &[SkillId], depth: u32) -> RouteTreeNodeDto {
+        let response = WorkerService::new().handle(WorkerRequest::Search {
+            request_id: 1,
+            input: SearchInputDto {
+                target: demon_ids::PIXIE,
+                required_skills: skills.to_vec(),
+                max_fusion_depth: depth,
+                dlc: Default::default(),
+            },
+        });
+        let WorkerResponse::SearchCompleted { result, .. } = response else {
+            panic!("expected a search result");
+        };
+        result.tree.expect("Pixie must have a route")
+    }
+
+    #[test]
+    fn initial_and_level_up_skills_are_provided_by_the_demon_itself() {
+        let tree = pixie_tree(&[skill_ids::DIA, skill_ids::RAKUKAJA], 0);
+        assert!(matches!(tree.acquisition, AcquisitionDto::Direct { .. }));
+        assert!(tree.final_level > tree.base_level);
+        assert!(
+            tree.upgrade_skills
+                .iter()
+                .any(|skill| skill.skill == skill_ids::RAKUKAJA)
+        );
+        assert_eq!(
+            skill_groups(&tree.required_skills, &tree.children),
+            vec![(
+                Message::OwnSkills,
+                vec![skill_ids::DIA, skill_ids::RAKUKAJA]
+            )]
+        );
+        assert_eq!(
+            skill_learning(skill_ids::DIA, &tree.upgrade_skills),
+            SkillLearning::Initial
+        );
+        assert_eq!(
+            skill_learning(skill_ids::RAKUKAJA, &tree.upgrade_skills),
+            SkillLearning::Level(4)
+        );
+    }
+
+    #[test]
+    fn fusion_skills_follow_the_current_material_assignments() {
+        let tree = pixie_tree(&[skill_ids::DIA, skill_ids::AGI], 1);
+        assert!(matches!(tree.acquisition, AcquisitionDto::Fusion { .. }));
+        assert_eq!(
+            skill_groups(&tree.required_skills, &tree.children),
+            vec![
+                (Message::OwnSkills, vec![skill_ids::DIA]),
+                (Message::InheritedSkills, vec![skill_ids::AGI]),
+            ]
+        );
+        for child in &tree.children {
+            let expected = if child.required_skills.is_empty() {
+                Vec::new()
+            } else {
+                vec![(Message::OwnSkills, child.required_skills.clone())]
+            };
+            assert_eq!(
+                skill_groups(&child.required_skills, &child.children),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn skill_groups_omit_empty_sources() {
+        assert!(skill_groups(&[], &[]).is_empty());
+        let tree = pixie_tree(&[skill_ids::AGI], 1);
+        assert_eq!(
+            skill_groups(&tree.required_skills, &tree.children),
+            vec![(Message::InheritedSkills, vec![skill_ids::AGI])]
+        );
+    }
+
+    #[test]
+    fn skill_groups_preserve_skill_order_within_each_source() {
+        let direct = pixie_tree(&[skill_ids::DIA, skill_ids::RAKUKAJA], 0);
+        let own = vec![skill_ids::RAKUKAJA, skill_ids::DIA];
+        assert_eq!(
+            skill_groups(&own, &direct.children),
+            vec![(Message::OwnSkills, own)]
+        );
+        let fusion = pixie_tree(&[skill_ids::AGI, skill_ids::BUFU, skill_ids::DIA], 2);
+        assert_eq!(
+            skill_groups(
+                &[skill_ids::BUFU, skill_ids::DIA, skill_ids::AGI],
+                &fusion.children
+            ),
+            vec![
+                (Message::OwnSkills, vec![skill_ids::DIA]),
+                (
+                    Message::InheritedSkills,
+                    vec![skill_ids::BUFU, skill_ids::AGI]
+                ),
+            ]
+        );
+    }
 
     #[test]
     fn source_picker_uses_the_larger_visible_side() {

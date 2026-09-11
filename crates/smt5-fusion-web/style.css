@@ -1197,103 +1197,9 @@ h3 {
     font-weight: 900;
 }
 
-.state-flow {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-    align-items: stretch;
-    gap: 0.38rem;
-    margin-top: 0.52rem;
-    padding: 0.42rem;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-small);
-    background: var(--surface-muted);
-}
-
-.state-card {
-    display: grid;
-    align-content: start;
-    gap: 0.1rem;
-    min-width: 0;
-    padding: 0.34rem 0.38rem;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-small);
-    background: var(--surface);
-    color: var(--ink-soft);
-    font-size: 0.9rem;
-    line-height: 1.2;
-}
-
-.state-card strong {
-    overflow: hidden;
-    color: var(--ink);
-    font-size: 1.08rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.state-card-heading {
-    display: flex;
-    min-width: 0;
-    align-items: baseline;
-    gap: 0.35rem;
-}
-
-.state-card-heading strong {
-    min-width: 0;
-}
-
-.state-label {
-    color: var(--orange-dark);
-    font-size: 0.82rem;
-    line-height: 1.15;
-    font-weight: 850;
-    letter-spacing: 0.06em;
-}
-
-.state-source {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.26rem;
-}
-
-.state-arrow {
-    align-self: center;
-    color: var(--orange);
-    font-size: 1.32rem;
-    font-weight: 900;
-}
-
-.level-skills {
-    display: grid;
-    gap: 0.14rem;
-    margin-top: 0.28rem;
-    padding-top: 0.25rem;
-    border-top: 1px dashed var(--line);
-}
-
-.level-skills .meta-label {
-    margin-bottom: 0;
-}
-
-.level-skill {
-    display: flex;
-    min-width: 0;
-    align-items: baseline;
-    gap: 0.24rem;
-    color: var(--ink);
-    font-size: 0.89rem;
-    line-height: 1.2;
-}
-
-.level-skill b {
-    flex: 0 0 auto;
-    color: var(--orange-dark);
-    font-family: var(--font-sans);
-    font-size: 0.83rem;
-}
-
 .skill-block {
+    display: grid;
+    gap: 0.45rem;
     margin-top: 0.65rem;
 }
 
@@ -1309,11 +1215,19 @@ h3 {
 .skill-badges {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 0.28rem;
+}
+
+.skill-source-group > .meta-label {
+    flex: 0 0 auto;
+    margin-bottom: 0;
+    white-space: nowrap;
 }
 
 .skill-badge {
     display: inline-flex;
+    max-width: 100%;
     align-items: center;
     gap: 0.22rem;
     padding: 0.16rem 0.36rem;
@@ -1322,8 +1236,16 @@ h3 {
 }
 
 .skill-badge strong {
+    min-width: 0;
     color: var(--ink);
     font-size: 0.9rem;
+    overflow-wrap: anywhere;
+}
+
+.skill-learning {
+    flex: 0 0 auto;
+    font-size: 0.78rem;
+    white-space: nowrap;
 }
 
 .node-action-wrap {
@@ -1566,6 +1488,29 @@ h3 {
     gap: 0.18rem;
 }
 
+.route-metrics {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.2rem 0.6rem;
+    margin-left: auto;
+    text-align: right;
+}
+
+.route-metric {
+    min-width: 0;
+    color: var(--ink-soft);
+    font-size: 0.83rem;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+
+.route-metric strong {
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+}
+
 .option-titleline {
     justify-content: flex-start;
     flex-wrap: wrap;
@@ -1591,7 +1536,7 @@ h3 {
     display: flex;
     min-width: 0;
     flex: 1 1 auto;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.2rem;
     padding: 0.12rem 0.22rem;
     border-radius: var(--radius-small);
@@ -1859,13 +1804,8 @@ h3 {
         gap: 0.05rem;
     }
 
-    .state-flow {
-        grid-template-columns: 1fr;
-    }
-
-    .state-arrow {
-        justify-self: center;
-        transform: rotate(90deg);
+    .material-row > div {
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .source-tree {

@@ -59,7 +59,8 @@ impl AcquisitionKind {
         match (self, upgraded) {
             (Self::Direct, true) => Message::DirectAndUpgrade,
             (Self::Direct, false) => Message::Direct,
-            (Self::Normal, _) => Message::NormalFusion,
+            (Self::Normal, true) => Message::NormalFusionAndUpgrade,
+            (Self::Normal, false) => Message::NormalFusion,
             (Self::Special, _) => Message::SpecialFusion,
         }
     }
@@ -77,4 +78,28 @@ impl AcquisitionKind {
 pub(super) fn MethodLabel(kind: AcquisitionKind, upgraded: bool) -> impl IntoView {
     let i18n = expect_context::<Controller>().state.i18n;
     view! { <span class=kind.class()>{move || i18n.text(kind.label(upgraded))}</span> }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AcquisitionKind, Message};
+
+    #[test]
+    fn normal_fusion_labels_include_leveling_only_when_needed() {
+        assert_eq!(AcquisitionKind::Normal.label(false), Message::NormalFusion);
+        assert_eq!(
+            AcquisitionKind::Normal.label(true),
+            Message::NormalFusionAndUpgrade
+        );
+        assert_eq!(AcquisitionKind::Direct.label(false), Message::Direct);
+        assert_eq!(
+            AcquisitionKind::Direct.label(true),
+            Message::DirectAndUpgrade
+        );
+        assert_eq!(
+            AcquisitionKind::Special.label(false),
+            Message::SpecialFusion
+        );
+        assert_eq!(AcquisitionKind::Special.label(true), Message::SpecialFusion);
+    }
 }

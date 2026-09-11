@@ -70,6 +70,7 @@ pub struct RouteTreeNodeDto {
     pub demon: DemonId,
     pub base_level: u32,
     pub final_level: u32,
+    pub estimated_macca: String,
     pub required_skills: Vec<SkillId>,
     pub upgrade_skills: Vec<UpgradeSkillDto>,
     pub acquisition: AcquisitionDto,
@@ -110,6 +111,8 @@ pub struct NodeOptionsDto {
 pub struct VisibleOptionDto {
     pub option_id: u32,
     pub selected: bool,
+    pub score: u32,
+    pub estimated_macca: String,
     pub acquisition: OptionAcquisitionDto,
 }
 

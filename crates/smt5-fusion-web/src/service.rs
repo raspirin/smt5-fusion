@@ -40,6 +40,7 @@ struct SearchSession {
 struct CachedOptions {
     revision: u64,
     path: RoutePath,
+    context: ReplacementContext,
     choices: Vec<VisibleChoice>,
 }
 
@@ -213,20 +214,33 @@ impl WorkerService {
             .as_ref()
             .expect("validated selection must exist");
         let selected = selection_at(current, &route_path).expect("validated path must exist");
-        let choices = &session
-            .options
-            .as_ref()
-            .expect("options must be prepared")
-            .choices;
-        let options = choices
+        let prepared = session.options.as_ref().expect("options must be prepared");
+        let choices = &prepared.choices;
+        let mut score = 0_u32;
+        let mut previous = None;
+        let mut options = choices
             .iter()
             .enumerate()
-            .map(|(index, visible)| VisibleOptionDto {
-                option_id: u32::try_from(index).expect("visible option count must fit in u32"),
-                selected: visible.selected,
-                acquisition: self.option_acquisition(visible),
+            .rev()
+            .map(|(index, visible)| {
+                if previous != Some(&visible.score) {
+                    score = score
+                        .checked_add(1)
+                        .expect("visible option count must fit in u32");
+                    previous = Some(&visible.score);
+                }
+                VisibleOptionDto {
+                    option_id: u32::try_from(index).expect("visible option count must fit in u32"),
+                    selected: visible.selected,
+                    score,
+                    estimated_macca: (&visible.score.estimated_macca
+                        - &prepared.context.outside.estimated_macca)
+                        .to_string(),
+                    acquisition: self.option_acquisition(visible),
+                }
             })
-            .collect();
+            .collect::<Vec<_>>();
+        options.reverse();
         WorkerResponse::NodeOptions {
             request_id,
             options: NodeOptionsDto {
@@ -345,7 +359,9 @@ impl WorkerService {
         let current = session.current.as_ref().ok_or(WorkerFailureCode::NoRoute)?;
         let spaces = spaces_for_path(&session.selector, current, path)
             .map_err(|_| WorkerFailureCode::InvalidPath)?;
-        let choices = visible_choices(&self.game_data, spaces, current, path)
+        let context = ReplacementContext::new(&self.game_data, current, path)
+            .map_err(|_| WorkerFailureCode::InvalidPath)?;
+        let choices = visible_choices(&self.game_data, spaces, current, path, &context)
             .map_err(|_| WorkerFailureCode::InvalidPath)?;
         self.session
             .as_mut()
@@ -353,6 +369,7 @@ impl WorkerService {
             .options = Some(CachedOptions {
             revision,
             path: path.clone(),
+            context,
             choices,
         });
         Ok(())
@@ -456,6 +473,7 @@ impl WorkerService {
             demon: selection.space.demon,
             base_level: meta.base_level,
             final_level: selection.demon.level,
+            estimated_macca: selection.score(&self.game_data).estimated_macca.to_string(),
             required_skills: selection.space.required_skills.clone(),
             upgrade_skills,
             acquisition,
@@ -538,10 +556,10 @@ fn visible_choices(
     spaces: &[Rc<RouteSpace>],
     current: &RouteSelection,
     path: &RoutePath,
+    context: &ReplacementContext,
 ) -> Result<Vec<VisibleChoice>, SelectionError> {
     let selected = selection_at(current, path)
         .ok_or_else(|| SelectionError::InvalidRoutePath(path.clone()))?;
-    let context = ReplacementContext::new(game_data, current, path)?;
     let mut groups = HashMap::<VisibleChoiceKey, usize>::new();
     let mut visible = Vec::<VisibleChoice>::new();
     for space in spaces {
@@ -578,17 +596,16 @@ fn visible_choices(
             selected: true,
         };
     }
-    let mut ranked = visible
-        .into_iter()
-        .map(|choice| (context.score(&choice.score), choice))
-        .collect::<Vec<_>>();
-    ranked.sort_by(|(left_score, left), (right_score, right)| {
-        left_score
-            .cmp(right_score)
+    for choice in &mut visible {
+        choice.score = context.score(&choice.score);
+    }
+    visible.sort_by(|left, right| {
+        left.score
+            .cmp(&right.score)
             .then_with(|| left.space.fusion_depth.cmp(&right.space.fusion_depth))
             .then_with(|| left.choice_index.cmp(&right.choice_index))
     });
-    Ok(ranked.into_iter().map(|(_, choice)| choice).collect())
+    Ok(visible)
 }
 
 struct ReplacementContext {
@@ -1083,6 +1100,7 @@ mod tests {
                 option_id: 0,
                 selected: true,
                 acquisition: OptionAcquisitionDto::Direct { .. },
+                ..
             })
         ));
         let fusion = options

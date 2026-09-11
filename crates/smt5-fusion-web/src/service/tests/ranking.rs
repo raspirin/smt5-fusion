@@ -32,6 +32,23 @@ fn score_tuple(score: &RouteScore) -> (u64, u32, u64) {
     )
 }
 
+fn assert_option_metrics(options: &NodeOptionsDto, scores: &[(u64, u32, u64)], outside_macca: u64) {
+    assert_eq!(options.options.len(), scores.len());
+    for (option, score) in options.options.iter().zip(scores) {
+        assert_eq!(
+            option.estimated_macca,
+            (score.2 - outside_macca).to_string()
+        );
+        assert!(option.score > 0);
+    }
+    for (displayed, actual) in options.options.windows(2).zip(scores.windows(2)) {
+        assert_eq!(
+            displayed[0].score.cmp(&displayed[1].score),
+            actual[1].cmp(&actual[0])
+        );
+    }
+}
+
 fn search_service() -> WorkerService {
     let mut service = WorkerService::new();
     assert!(matches!(
@@ -126,14 +143,15 @@ fn every_recipe_group_uses_its_best_skill_assignment() {
     }
     assert!(raw_count > visible.len());
     assert_eq!(expected.len(), visible.len());
-    for choice in visible {
-        assert_eq!(score_tuple(&choice.score), expected[&choice.key]);
+    let scores = visible
+        .iter()
+        .map(|choice| expected[&choice.key])
+        .collect::<Vec<_>>();
+    for (choice, expected) in visible.iter().zip(&scores) {
+        assert_eq!(score_tuple(&choice.score), *expected);
     }
-    assert!(
-        visible
-            .windows(2)
-            .all(|pair| pair[0].score <= pair[1].score)
-    );
+    assert!(scores.windows(2).all(|pair| pair[0] <= pair[1]));
+    assert_option_metrics(&options, &scores, 0);
 }
 
 #[test]
@@ -143,9 +161,8 @@ fn nested_candidates_are_sorted_by_the_resulting_whole_tree() {
     let original = service.session.as_ref().unwrap().current.clone().unwrap();
     for child_index in 0..original.materials.len() {
         let path = RoutePath(vec![child_index]);
-        options(&mut service, &[child_index as u8]);
+        let displayed = options(&mut service, &[child_index as u8]);
         let session = service.session.as_ref().unwrap();
-        let context = ReplacementContext::new(&service.game_data, &original, &path).unwrap();
         let mut scores = Vec::new();
         for candidate in &session.options.as_ref().unwrap().choices {
             let mut changed = original.clone();
@@ -162,7 +179,7 @@ fn nested_candidates_are_sorted_by_the_resulting_whole_tree() {
                 changed.apply_update(update).unwrap();
             }
             let actual = measure(&service.game_data, &changed);
-            assert_eq!(score_tuple(&context.score(&candidate.score)), actual);
+            assert_eq!(score_tuple(&candidate.score), actual);
             for (index, other) in original.materials.iter().enumerate() {
                 if index != child_index {
                     assert_eq!(&changed.materials[index], other);
@@ -171,10 +188,156 @@ fn nested_candidates_are_sorted_by_the_resulting_whole_tree() {
             scores.push(actual);
         }
         assert!(scores.windows(2).all(|pair| pair[0] <= pair[1]));
+        let outside_macca = measure(&service.game_data, &original).2
+            - measure(&service.game_data, &original.materials[child_index]).2;
+        assert!(outside_macca > 0);
+        assert_option_metrics(&displayed, &scores, outside_macca);
     }
     assert_eq!(
         service.session.as_ref().unwrap().current.as_ref(),
         Some(&original)
+    );
+}
+
+#[test]
+fn displayed_scores_preserve_ties_and_priority_over_macca_without_precision_loss() {
+    let mut service = search_service();
+    options(&mut service, &[]);
+    let choices = &mut service
+        .session
+        .as_mut()
+        .unwrap()
+        .options
+        .as_mut()
+        .unwrap()
+        .choices;
+    assert_eq!(choices.len(), 3);
+    let macca = "18446744073709551616000";
+    let better = RouteScore {
+        fusion_count: 4_u8.into(),
+        fusion_depth: 4,
+        estimated_macca: macca.parse().unwrap(),
+    };
+    choices[0].score = better.clone();
+    choices[1].score = better;
+    choices[2].score = RouteScore {
+        fusion_count: 5_u8.into(),
+        fusion_depth: 3,
+        estimated_macca: 1_u8.into(),
+    };
+    let displayed = options(&mut service, &[]);
+    assert_eq!(
+        displayed
+            .options
+            .iter()
+            .map(|option| option.score)
+            .collect::<Vec<_>>(),
+        [2, 2, 1]
+    );
+    assert_eq!(displayed.options[0].estimated_macca, macca);
+    assert_eq!(displayed.options[1].estimated_macca, macca);
+    assert_eq!(displayed.options[2].estimated_macca, "1");
+}
+
+#[test]
+fn single_direct_option_has_a_positive_score_and_summoning_cost() {
+    let mut service = WorkerService::new();
+    service.handle(search_request(demon_ids::PIXIE, &[], 0));
+    let displayed = options(&mut service, &[]);
+    assert_eq!(displayed.options.len(), 1);
+    assert_eq!(displayed.options[0].score, 1);
+    let current = service.session.as_ref().unwrap().current.as_ref().unwrap();
+    assert_option_metrics(&displayed, &[measure(&service.game_data, current)], 0);
+}
+
+fn assert_tree_macca(data: &GameData, selection: &RouteSelection, tree: &RouteTreeNodeDto) {
+    assert_eq!(tree.estimated_macca, measure(data, selection).2.to_string());
+    assert_eq!(tree.children.len(), selection.materials.len());
+    for (child, material) in tree.children.iter().zip(&selection.materials) {
+        assert_tree_macca(data, material, child);
+    }
+    if !tree.children.is_empty() {
+        let children_macca = tree
+            .children
+            .iter()
+            .map(|child| child.estimated_macca.parse::<u64>().unwrap())
+            .sum::<u64>();
+        assert_eq!(tree.estimated_macca, children_macca.to_string());
+    }
+}
+
+fn tree_nodes(tree: &RouteTreeNodeDto) -> Vec<&RouteTreeNodeDto> {
+    let mut nodes = vec![tree];
+    for child in &tree.children {
+        nodes.extend(tree_nodes(child));
+    }
+    nodes
+}
+
+#[test]
+fn node_and_recipe_costs_agree_before_and_after_subtree_replacement() {
+    let mut service = search_service();
+    select_deep_root(&mut service);
+    let session = service.session.as_ref().unwrap();
+    let current = session.current.as_ref().unwrap();
+    let tree = service.tree(&session.selector, current, current, Vec::new());
+    assert_tree_macca(&service.game_data, current, &tree);
+    let root_options = options(&mut service, &[]);
+    assert_eq!(
+        root_options
+            .options
+            .iter()
+            .find(|option| option.selected)
+            .unwrap()
+            .estimated_macca,
+        tree.estimated_macca
+    );
+    let mut replacement = None;
+    for child in tree_nodes(&tree).into_iter().skip(1) {
+        let candidates = options(&mut service, &child.path);
+        assert_eq!(
+            candidates
+                .options
+                .iter()
+                .find(|option| option.selected)
+                .unwrap()
+                .estimated_macca,
+            child.estimated_macca
+        );
+        if child.path.len() == 1
+            && let Some(candidate) = candidates.options.iter().find(|option| !option.selected)
+        {
+            replacement = Some((candidates.clone(), candidate.clone()));
+        }
+    }
+    let (candidates, candidate) = replacement.expect("a child must have an alternative recipe");
+    let snapshot = select(&mut service, &candidates, candidate.option_id);
+    let current = service.session.as_ref().unwrap().current.as_ref().unwrap();
+    assert_tree_macca(&service.game_data, current, &snapshot.tree);
+    let changed = &snapshot.tree.children[candidates.path[0] as usize];
+    assert_eq!(changed.estimated_macca, candidate.estimated_macca);
+    let updated = options(&mut service, &candidates.path);
+    assert_eq!(
+        updated
+            .options
+            .iter()
+            .find(|option| option.selected)
+            .unwrap()
+            .estimated_macca,
+        changed.estimated_macca
+    );
+    let response = service.handle(WorkerRequest::ResetToDefault {
+        request_id: 4,
+        session_id: snapshot.session_id,
+        selection_revision: snapshot.selection_revision,
+    });
+    let WorkerResponse::SelectionChanged { snapshot, .. } = response else {
+        panic!("expected the default route");
+    };
+    assert_tree_macca(
+        &service.game_data,
+        service.session.as_ref().unwrap().current.as_ref().unwrap(),
+        &snapshot.tree,
     );
 }
 
@@ -330,6 +493,15 @@ fn current_options_preserve_manual_edits_and_reset_restores_the_ranked_default()
     assert_eq!(
         score_tuple(&current_option.score),
         measure(&service.game_data, &edited)
+    );
+    assert_eq!(
+        root_options
+            .options
+            .iter()
+            .find(|option| option.selected)
+            .unwrap()
+            .estimated_macca,
+        measure(&service.game_data, &edited).2.to_string()
     );
     let current_id = root_options
         .options

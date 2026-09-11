@@ -41,6 +41,8 @@ fn source_search_matches_only_demons_present_in_an_option() {
     let direct = VisibleOptionDto {
         option_id: 0,
         selected: false,
+        score: 2,
+        estimated_macca: "200".to_owned(),
         acquisition: OptionAcquisitionDto::Direct {
             summon_level: 1,
             target_level: 1,
@@ -49,6 +51,8 @@ fn source_search_matches_only_demons_present_in_an_option() {
     let fusion = VisibleOptionDto {
         option_id: 1,
         selected: false,
+        score: 1,
+        estimated_macca: "100".to_owned(),
         acquisition: OptionAcquisitionDto::Fusion {
             is_special: false,
             route_depth: 1,
@@ -74,9 +78,11 @@ fn source_search_matches_only_demons_present_in_an_option() {
 fn source_filtering_preserves_worker_ranking_for_equal_search_matches() {
     Owner::new().with(|| {
         let state = AppState::new(PersistedForm::default(), I18n::new(Locale::ZhCn));
-        let fusion = |option_id, route_depth| VisibleOptionDto {
+        let fusion = |option_id, route_depth, score, estimated_macca: &str| VisibleOptionDto {
             option_id,
             selected: false,
+            score,
+            estimated_macca: estimated_macca.to_owned(),
             acquisition: OptionAcquisitionDto::Fusion {
                 is_special: false,
                 route_depth,
@@ -94,16 +100,18 @@ fn source_filtering_preserves_worker_ranking_for_equal_search_matches() {
             path: Vec::new(),
             demon: DemonId(193),
             options: vec![
-                fusion(9, 3),
+                fusion(9, 3, 3, "9000"),
                 VisibleOptionDto {
                     option_id: 4,
                     selected: false,
+                    score: 2,
+                    estimated_macca: "2000".to_owned(),
                     acquisition: OptionAcquisitionDto::Direct {
                         summon_level: 1,
                         target_level: 1,
                     },
                 },
-                fusion(2, 2),
+                fusion(2, 2, 1, "1000"),
             ],
         });
         state.options.set(Some(options.clone()));
@@ -116,6 +124,10 @@ fn source_filtering_preserves_worker_ranking_for_equal_search_matches() {
         assert_eq!(ids(), [9, 4, 2]);
         state.option_query.set("Barong".to_owned());
         assert_eq!(ids(), [9, 2]);
+        assert_eq!(
+            filtered_options(state),
+            vec![options.options[0].clone(), options.options[2].clone()]
+        );
         state.option_query.set(String::new());
         assert_eq!(ids(), [9, 4, 2]);
         assert_eq!(state.options.get_untracked(), Some(options));
@@ -157,6 +169,7 @@ fn collapse_all_collects_every_node_with_materials() {
             demon: DemonId(0),
             base_level: 1,
             final_level: 1,
+            estimated_macca: "0".to_owned(),
             required_skills: Vec::new(),
             upgrade_skills: Vec::new(),
             acquisition: AcquisitionDto::Direct {
@@ -366,6 +379,8 @@ fn completed_options_requests_hide_the_indicator_and_ignore_late_timers() {
                 options: vec![VisibleOptionDto {
                     option_id: 0,
                     selected: true,
+                    score: 1,
+                    estimated_macca: "100".to_owned(),
                     acquisition: OptionAcquisitionDto::Direct {
                         summon_level: 82,
                         target_level: 82,

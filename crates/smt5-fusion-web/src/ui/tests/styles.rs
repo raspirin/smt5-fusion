@@ -225,6 +225,91 @@ fn skill_slot_edit_button_spans_the_row_beneath_the_remove_button() {
 }
 
 #[test]
+fn route_skill_groups_and_recipe_metrics_fit_narrow_cards() {
+    assert_eq!(rule(".skill-block")["display"], "grid");
+    assert_eq!(rule(".skill-block")["gap"], "0.45rem");
+    let badges = rule(".skill-badges");
+    assert_eq!(badges["display"], "flex");
+    assert_eq!(badges["flex-wrap"], "wrap");
+    assert_eq!(badges["align-items"], "center");
+    let label = rule(".skill-source-group > .meta-label");
+    assert_eq!(label["flex"], "0 0 auto");
+    assert_eq!(label["margin-bottom"], "0");
+    assert_eq!(label["white-space"], "nowrap");
+    assert_eq!(rule(".skill-badge strong")["min-width"], "0");
+    assert_eq!(rule(".skill-badge strong")["overflow-wrap"], "anywhere");
+    let tree = include_str!("../components/route_tree.rs");
+    let group = tree
+        .split_once("<div class=\"skill-source-group skill-badges\">")
+        .unwrap()
+        .1
+        .split_once("</div>")
+        .unwrap()
+        .0;
+    assert!(group.contains("<span class=\"meta-label\">"));
+    assert!(group.contains("source == Message::OwnSkills"));
+    assert!(group.contains("skill_learning(id, &upgrade_skills)"));
+    assert!(group.contains("skill_badge(state, id, learning)"));
+    assert_eq!(rule(".skill-learning")["flex"], "0 0 auto");
+    assert_eq!(rule(".skill-learning")["white-space"], "nowrap");
+    assert_eq!(rule(".node-topline, .option-titleline")["display"], "flex");
+    assert_eq!(rule(".option-titleline")["flex-wrap"], "wrap");
+    assert_eq!(rule(".route-metric")["overflow-wrap"], "anywhere");
+    assert_eq!(
+        rule(".route-metric strong")["font-variant-numeric"],
+        "tabular-nums"
+    );
+    let source = include_str!("../components/source_picker.rs");
+    assert_eq!(source.matches("i18n.text(Message::Macca)").count(), 1);
+    assert_eq!(source.matches("i18n.text(Message::Score)").count(), 1);
+    assert_eq!(
+        source.matches("<div class=\"option-titleline\">").count(),
+        2
+    );
+    for title in source.split("<div class=\"option-titleline\">").skip(1) {
+        assert!(title.split_once("</div>").unwrap().0.contains("{metrics}"));
+    }
+}
+
+#[test]
+fn material_names_align_at_the_top_independently_of_skill_rows() {
+    assert_eq!(rule(".material-entry")["align-items"], "stretch");
+    assert_eq!(rule(".material-row")["align-items"], "flex-start");
+    assert_eq!(rule(".material-row > div")["align-items"], "baseline");
+    assert_eq!(
+        rule(".skill-option strong, .material-row strong")["white-space"],
+        "nowrap"
+    );
+    let mobile = css_block(CSS, "@media (max-width: 480px)");
+    let details = declarations(css_block(mobile, ".material-row > div"));
+    assert_eq!(details["grid-template-columns"], "minmax(0, 1fr)");
+}
+
+#[test]
+fn card_metrics_align_right_and_node_levels_stay_inline() {
+    let metrics = rule(".route-metrics");
+    assert_eq!(metrics["display"], "flex");
+    assert_eq!(metrics["flex-wrap"], "wrap");
+    assert_eq!(metrics["justify-content"], "flex-end");
+    assert_eq!(metrics["margin-left"], "auto");
+    assert_eq!(metrics["text-align"], "right");
+    assert_eq!(metrics["min-width"], "0");
+    let tree = include_str!("../components/route_tree.rs");
+    let method = tree
+        .split_once("<div class=\"node-method\">")
+        .unwrap()
+        .1
+        .split_once("</div>")
+        .unwrap()
+        .0;
+    assert!(method.contains("<LevelFlow initial_level=base_level final_level />"));
+    assert!(method.contains("class=\"route-metrics\""));
+    assert!(method.contains("i18n.text(Message::Macca)"));
+    let options = include_str!("../components/source_picker.rs");
+    assert!(options.contains("<span class=\"route-metrics\">"));
+}
+
+#[test]
 fn touch_and_narrow_sidebars_grow_with_content_instead_of_scrolling_internally() {
     use super::super::events::TOUCH_OR_NO_HOVER_QUERY;
 

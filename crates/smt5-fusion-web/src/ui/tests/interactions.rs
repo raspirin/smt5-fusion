@@ -329,6 +329,7 @@ fn setup_with_expansion_tree() -> (Controller, TestWorker) {
             demon: DemonId(0),
             base_level: 1,
             final_level: 1,
+            estimated_macca: "0".to_owned(),
             required_skills: Vec::new(),
             upgrade_skills: Vec::new(),
             acquisition,

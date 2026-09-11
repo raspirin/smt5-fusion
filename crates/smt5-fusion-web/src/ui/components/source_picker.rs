@@ -11,7 +11,7 @@ use super::{
             active_element, focus_moved_outside, focus_picker_on_open, preserve_picker_focus,
             restore_focus,
         },
-        selectors::{demon, filtered_options, source_active_descendant},
+        selectors::{demon, filtered_options, grouped_digits, source_active_descendant},
         state::Controller,
     },
     acquisition::{AcquisitionKind, MethodLabel},
@@ -148,19 +148,26 @@ fn OptionCard(option: VisibleOptionDto, index: usize) -> impl IntoView {
     let i18n = state.i18n;
     let option_id = option.option_id;
     let selected = option.selected;
+    let score = grouped_digits(&option.score.to_string());
+    let estimated_macca = grouped_digits(&option.estimated_macca);
     let acquisition_kind = AcquisitionKind::from_option(&option.acquisition);
     let option_class = acquisition_kind.option_card_class();
     let select_controller = controller.clone();
+    let metrics = view! {
+        <span class="route-metrics">
+            <span class="route-metric">{move || i18n.text(Message::Macca)}" "<strong>{estimated_macca}</strong></span>
+            <span class="route-metric">{move || i18n.text(Message::Score)}" "<strong>{score}</strong></span>
+        </span>
+    };
     let content = match option.acquisition {
         OptionAcquisitionDto::Direct {
             summon_level,
             target_level,
         } => view! {
-            <div class="option-content">
-                <div class="option-titleline">
-                    <MethodLabel kind=acquisition_kind upgraded={target_level > summon_level} />
-                    <LevelFlow initial_level=summon_level final_level=target_level />
-                </div>
+            <div class="option-titleline">
+                <MethodLabel kind=acquisition_kind upgraded={target_level > summon_level} />
+                <LevelFlow initial_level=summon_level final_level=target_level />
+                {metrics}
             </div>
         }.into_any(),
         OptionAcquisitionDto::Fusion {
@@ -170,43 +177,42 @@ fn OptionCard(option: VisibleOptionDto, index: usize) -> impl IntoView {
             target_level,
             materials,
         } => view! {
-            <div class="option-content">
-                <div class="option-titleline">
-                    <MethodLabel kind=acquisition_kind upgraded={target_level > fusion_level} />
-                    <LevelFlow initial_level=fusion_level final_level=target_level />
-                    <span class="level-flow">{move || i18n.route_depth(route_depth)}</span>
-                </div>
-                <div class="material-list">
-                    {materials.into_iter().enumerate().map(|(material_index, material)| {
-                        let details = state.catalog.get_untracked().and_then(|catalog| {
-                            demon(&catalog, material.demon).map(|meta| (meta.race, meta.base_level))
-                        });
-                        let required_skills = (!material.required_skills.is_empty()).then(|| view! {
-                            <div class="compact-skills">
-                                {material.required_skills.iter().copied().map(|id| view! {
-                                    <span>{move || i18n.skill_name(id)}</span>
-                                }).collect_view()}
-                            </div>
-                        });
-                        let material_demon = material.demon;
-                        view! {
-                            <div class="material-entry">
-                                {(material_index > 0).then(|| view! {
-                                    <span class="material-plus" aria-hidden="true">"＋"</span>
-                                })}
-                                <div class="material-row">
-                                    <div>
-                                        <strong class="demon-name">{move || i18n.demon_name(material_demon)}</strong>
-                                        <small>{move || details.map(|(race, level)| {
-                                            format!("{} · Lv.{level}", i18n.race_name(race))
-                                        }).unwrap_or_default()}</small>
-                                        {required_skills}
-                                    </div>
+            <div class="option-titleline">
+                <MethodLabel kind=acquisition_kind upgraded={target_level > fusion_level} />
+                <LevelFlow initial_level=fusion_level final_level=target_level />
+                <span class="level-flow">{move || i18n.route_depth(route_depth)}</span>
+                {metrics}
+            </div>
+            <div class="material-list">
+                {materials.into_iter().enumerate().map(|(material_index, material)| {
+                    let details = state.catalog.get_untracked().and_then(|catalog| {
+                        demon(&catalog, material.demon).map(|meta| (meta.race, meta.base_level))
+                    });
+                    let required_skills = (!material.required_skills.is_empty()).then(|| view! {
+                        <div class="compact-skills">
+                            {material.required_skills.iter().copied().map(|id| view! {
+                                <span>{move || i18n.skill_name(id)}</span>
+                            }).collect_view()}
+                        </div>
+                    });
+                    let material_demon = material.demon;
+                    view! {
+                        <div class="material-entry">
+                            {(material_index > 0).then(|| view! {
+                                <span class="material-plus" aria-hidden="true">"＋"</span>
+                            })}
+                            <div class="material-row">
+                                <div>
+                                    <strong class="demon-name">{move || i18n.demon_name(material_demon)}</strong>
+                                    <small>{move || details.map(|(race, level)| {
+                                        format!("{} · Lv.{level}", i18n.race_name(race))
+                                    }).unwrap_or_default()}</small>
+                                    {required_skills}
                                 </div>
                             </div>
-                        }
-                    }).collect_view()}
-                </div>
+                        </div>
+                    }
+                }).collect_view()}
             </div>
         }.into_any(),
     };
@@ -225,7 +231,9 @@ fn OptionCard(option: VisibleOptionDto, index: usize) -> impl IntoView {
             on:mousemove=move |_| state.option_active_index.set(index)
             on:click=move |_| select_controller.select_option(option_id, selected)
         >
-            {content}
+            <div class="option-content">
+                {content}
+            </div>
             <span class="option-action">{move || i18n.text(if selected {
                 Message::CurrentPlan
             } else {
