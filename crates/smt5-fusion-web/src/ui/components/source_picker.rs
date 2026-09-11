@@ -7,72 +7,55 @@ use crate::{
 
 use super::{
     super::{
-        events::{
-            active_element, focus_moved_outside, focus_picker_on_open, preserve_picker_focus,
-            restore_focus,
-        },
+        events::focus_picker_on_open,
         selectors::{demon, filtered_options, grouped_digits, source_active_descendant},
         state::Controller,
     },
     acquisition::{AcquisitionKind, MethodLabel},
     level_flow::LevelFlow,
+    picker_dialog::PickerDialog,
 };
 
+pub(super) fn recipe_trigger_id(path: &[u8]) -> String {
+    let suffix = if path.is_empty() {
+        "root".to_owned()
+    } else {
+        path.iter().map(u8::to_string).collect::<Vec<_>>().join("-")
+    };
+    format!("recipe-trigger-{suffix}")
+}
+
 #[component]
-pub(super) fn NodeOptionsPopover(
-    open_upward: RwSignal<bool>,
-    max_height: RwSignal<f64>,
-) -> impl IntoView {
+pub(crate) fn SourcePicker() -> impl IntoView {
+    let state = expect_context::<Controller>().state;
+    view! {
+        <Show when=move || state.panel_path.get().is_some()>
+            <SourcePickerDialog />
+        </Show>
+    }
+}
+
+#[component]
+fn SourcePickerDialog() -> impl IntoView {
     let controller = expect_context::<Controller>();
     let state = controller.state;
     let i18n = state.i18n;
     let keyboard_controller = controller.clone();
-    let return_focus = StoredValue::new_local(active_element());
+    let return_focus_id = state
+        .panel_path
+        .get_untracked()
+        .map(|path| recipe_trigger_id(&path));
     let input_ref = NodeRef::<leptos::html::Input>::new();
     input_ref.on_load(|input| focus_picker_on_open(&input));
     view! {
-        <section
-            class="node-options-popover"
-            class:opens-upward=move || open_upward.get()
-            style=move || format!("max-height: {:.0}px", max_height.get())
-            role="dialog"
-            tabindex="-1"
-            aria-labelledby="node-options-heading"
-            on:focusout=move |event: web_sys::FocusEvent| {
-                if focus_moved_outside(&event) {
-                    state.close_options();
-                }
-            }
-            on:keydown=move |event: web_sys::KeyboardEvent| {
-                if event.key() == "Escape" {
-                    event.prevent_default();
-                    event.stop_propagation();
-                    let target = return_focus.get_value();
-                    state.close_options();
-                    restore_focus(target);
-                }
-            }
+        <PickerDialog
+            heading_id="node-options-heading"
+            title=Signal::derive(move || state.options.get().map(|options| {
+                i18n.options_title(&i18n.demon_name(options.demon))
+            }).unwrap_or_else(|| i18n.text(Message::ChoosePlan)))
+            on_close=Callback::new(move |()| state.close_options())
+            return_focus_id
         >
-            <div class="node-options-heading">
-                <strong id="node-options-heading">
-                    {move || state.options.get().map(|options| {
-                        i18n.options_title(&i18n.demon_name(options.demon))
-                    }).unwrap_or_else(|| i18n.text(Message::ChoosePlan))}
-                </strong>
-                <button
-                    class="icon-button"
-                    type="button"
-                    aria-label=move || i18n.text(Message::Close)
-                    on:mousedown=preserve_picker_focus
-                    on:click=move |_| {
-                        let target = return_focus.get_value();
-                        state.close_options();
-                        restore_focus(target);
-                    }
-                >
-                    "×"
-                </button>
-            </div>
             <input
                 class="text-input source-search"
                 type="search"
@@ -124,7 +107,7 @@ pub(super) fn NodeOptionsPopover(
                 </div>
             </Show>
             <Show when=move || state.options.get().is_some()>
-                <div id="node-option-list" class="node-option-list" role="listbox">
+                <div id="node-option-list" class="picker-list" role="listbox">
                     {move || {
                         let options = filtered_options(state);
                         if options.is_empty() {
@@ -137,7 +120,7 @@ pub(super) fn NodeOptionsPopover(
                     }}
                 </div>
             </Show>
-        </section>
+        </PickerDialog>
     }
 }
 
@@ -227,7 +210,6 @@ fn OptionCard(option: VisibleOptionDto, index: usize) -> impl IntoView {
             role="option"
             aria-selected=selected
             disabled=move || !state.can_edit_route()
-            on:mousedown=preserve_picker_focus
             on:mousemove=move |_| state.option_active_index.set(index)
             on:click=move |_| select_controller.select_option(option_id, selected)
         >
@@ -240,5 +222,24 @@ fn OptionCard(option: VisibleOptionDto, index: usize) -> impl IntoView {
                 Message::UsePlan
             })}</span>
         </button>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::recipe_trigger_id;
+
+    #[test]
+    fn focus_return_targets_are_distinct_and_stable_for_every_route_path() {
+        let paths: &[&[u8]] = &[&[], &[0], &[1], &[0, 1], &[1, 0], &[0, 1, 0]];
+        let ids = paths
+            .iter()
+            .map(|path| recipe_trigger_id(path))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(ids.len(), paths.len());
+        assert_eq!(recipe_trigger_id(&[]), "recipe-trigger-root");
+        assert_eq!(recipe_trigger_id(&[0, 1]), "recipe-trigger-0-1");
     }
 }

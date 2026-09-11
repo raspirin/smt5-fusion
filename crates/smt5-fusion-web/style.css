@@ -1249,7 +1249,6 @@ h3 {
 }
 
 .node-action-wrap {
-    position: relative;
     margin-top: 0.52rem;
 }
 
@@ -1260,20 +1259,47 @@ h3 {
     font-size: 1.01rem;
 }
 
+html:has(.modal-backdrop),
+body:has(.modal-backdrop) {
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
 .modal-backdrop {
     position: fixed;
-    z-index: 30;
+    z-index: 60;
     inset: 0;
-    display: grid;
-    place-items: center;
-    padding: 1rem;
+    overflow: hidden;
+    overscroll-behavior: none;
     background: var(--backdrop);
     backdrop-filter: blur(2px);
 }
 
-.picker-panel,
-.node-options-popover {
+.picker-viewport {
+    --picker-inset: 1rem;
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: grid;
+    width: 100%;
+    height: 100vh;
+    height: 100svh;
+    min-height: 0;
+    place-items: center;
+    padding: max(var(--picker-inset), env(safe-area-inset-top))
+        max(var(--picker-inset), env(safe-area-inset-right))
+        max(var(--picker-inset), env(safe-area-inset-bottom))
+        max(var(--picker-inset), env(safe-area-inset-left));
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
+.picker-panel {
     display: flex;
+    width: min(960px, 100%);
+    height: min(780px, 100%);
+    min-width: 0;
+    min-height: 0;
     flex-direction: column;
     overflow: hidden;
     border: 1px solid var(--line-strong);
@@ -1282,35 +1308,9 @@ h3 {
     box-shadow: var(--shadow-high);
 }
 
-.picker-panel {
-    width: min(620px, 100%);
-    max-height: min(780px, calc(100vh - 2rem));
-}
-
-.node-options-backdrop {
-    position: fixed;
-    z-index: 24;
-    inset: 0;
-    background: transparent;
-}
-
-.node-options-popover {
-    position: absolute;
-    z-index: 25;
-    top: calc(100% + 0.4rem);
-    right: 0;
-    left: 0;
-    width: auto;
-    max-height: min(560px, 72vh);
-}
-
-.node-options-popover.opens-upward {
-    top: auto;
-    bottom: calc(100% + 0.4rem);
-}
-
-.node-options-heading {
+.picker-heading {
     display: flex;
+    flex: 0 0 auto;
     min-height: 42px;
     align-items: center;
     justify-content: space-between;
@@ -1319,7 +1319,7 @@ h3 {
     border-bottom: 1px solid var(--line);
 }
 
-.node-options-heading strong {
+.picker-heading strong {
     overflow: hidden;
     font-family: var(--font-serif);
     font-size: 0.9rem;
@@ -1327,9 +1327,10 @@ h3 {
     white-space: nowrap;
 }
 
-.node-options-heading .icon-button {
-    width: 34px;
-    height: 34px;
+.picker-heading .icon-button {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
 }
 
 .source-search {
@@ -1347,10 +1348,6 @@ h3 {
     gap: 0.45rem;
     padding: 0.45rem;
     border-bottom: 1px solid var(--line);
-}
-
-.skill-picker-list {
-    min-height: 120px;
 }
 
 .picker-item {
@@ -1429,9 +1426,9 @@ h3 {
     text-align: center;
 }
 
-.node-option-list {
+.picker-list {
     display: flex;
-    min-height: 80px;
+    min-height: 0;
     flex: 1 1 auto;
     flex-direction: column;
     align-items: stretch;
@@ -1439,6 +1436,7 @@ h3 {
     padding: 0.45rem;
     overflow-y: auto;
     overscroll-behavior: contain;
+    scrollbar-gutter: stable;
 }
 
 .option-card {
@@ -1724,17 +1722,8 @@ h3 {
         min-height: 300px;
     }
 
-    .modal-backdrop {
-        align-items: end;
-        padding: 0;
-    }
-
-    .picker-panel {
-        width: 100%;
-        max-height: min(88vh, 880px);
-        border-width: 1px 0 0;
-        border-radius: 14px 14px 0 0;
-        padding-bottom: env(safe-area-inset-bottom);
+    .picker-viewport {
+        --picker-inset: 0.5rem;
     }
 
 }

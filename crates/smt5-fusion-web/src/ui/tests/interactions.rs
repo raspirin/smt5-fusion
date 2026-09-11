@@ -37,6 +37,33 @@ fn calculate(controller: &Controller, worker: &TestWorker, service: &mut WorkerS
 }
 
 #[test]
+fn failed_recipe_changes_close_the_modal_to_expose_the_error_without_losing_the_route() {
+    Owner::new().with(|| {
+        let (controller, worker, mut service) = setup();
+        let state = controller.state;
+        calculate(&controller, &worker, &mut service);
+        let original = state.result.get_untracked().unwrap();
+        controller.open_options(vec![]);
+        worker.respond(service.handle(request(&worker)));
+        assert!(untrack(|| state.modal_open()));
+        controller.select_option(u32::MAX, false);
+        assert!(state.selection_busy.get_untracked());
+        let response = service.handle(request(&worker));
+        assert!(matches!(&response, WorkerResponse::Failure { failure, .. }
+            if failure.code == crate::protocol::WorkerFailureCode::InvalidOption));
+        worker.respond(response);
+        assert!(!untrack(|| state.modal_open()));
+        assert!(!state.selection_busy.get_untracked());
+        assert!(state.error.get_untracked().is_some());
+        assert!(Arc::ptr_eq(
+            &state.result.get_untracked().unwrap(),
+            &original
+        ));
+        assert!(untrack(|| state.can_edit_route()));
+    });
+}
+
+#[test]
 fn theme_changes_preserve_running_searches_results_and_expansion() {
     Owner::new().with(|| {
         let (controller, worker, mut service) = setup();
@@ -256,7 +283,7 @@ fn filtering_during_options_loading_keeps_keyboard_focus_in_the_visible_list() {
 }
 
 #[test]
-fn mutation_blocks_new_searches_and_preserves_its_path_when_the_popover_closes() {
+fn mutation_blocks_new_searches_and_preserves_its_path_when_the_dialog_closes() {
     Owner::new().with(|| {
         let (controller, worker, mut service) = setup();
         let state = controller.state;
@@ -285,7 +312,7 @@ fn mutation_blocks_new_searches_and_preserves_its_path_when_the_popover_closes()
 }
 
 #[test]
-fn closing_a_mutation_popover_does_not_reset_unrelated_tree_expansion() {
+fn closing_a_mutation_dialog_does_not_reset_unrelated_tree_expansion() {
     Owner::new().with(|| {
         let (controller, worker, mut service) = setup();
         let state = controller.state;

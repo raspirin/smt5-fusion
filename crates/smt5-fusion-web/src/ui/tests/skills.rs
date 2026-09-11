@@ -22,6 +22,44 @@ fn setup() -> (Controller, Vec<SkillId>) {
 }
 
 #[test]
+fn opening_either_modal_closes_the_other_and_resets_its_filters() {
+    Owner::new().with(|| {
+        let (controller, _) = setup();
+        let state = controller.state;
+        assert!(!untrack(|| state.modal_open()));
+        state.target_picker_open.set(true);
+        controller.open_skill_picker(0);
+        assert!(untrack(|| state.modal_open()));
+        assert!(!state.target_picker_open.get_untracked());
+        state.skill_query.set("test".to_owned());
+        state
+            .skill_category
+            .set(Some(crate::protocol::SkillCategory::Fire));
+
+        state.begin_options_request(7, vec![0]);
+        assert!(untrack(|| state.modal_open()));
+        assert!(!state.skill_picker_open.get_untracked());
+        assert!(state.skill_picker_slot.get_untracked().is_none());
+        assert!(state.skill_query.get_untracked().is_empty());
+        assert!(state.skill_category.get_untracked().is_none());
+        state.option_query.set("test".to_owned());
+
+        controller.open_skill_picker(0);
+        assert!(untrack(|| state.modal_open()));
+        assert!(state.panel_path.get_untracked().is_none());
+        assert!(state.active_options.get_untracked().is_none());
+        assert!(state.option_query.get_untracked().is_empty());
+        state.close_skill_picker();
+        assert!(!untrack(|| state.modal_open()));
+
+        state.begin_options_request(8, vec![]);
+        assert!(untrack(|| state.modal_open()));
+        state.close_options();
+        assert!(!untrack(|| state.modal_open()));
+    });
+}
+
+#[test]
 fn filled_skill_slots_replace_in_place_including_at_capacity() {
     Owner::new().with(|| {
         let (controller, choices) = setup();

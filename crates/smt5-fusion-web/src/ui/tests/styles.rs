@@ -225,6 +225,126 @@ fn skill_slot_edit_button_spans_the_row_beneath_the_remove_button() {
 }
 
 #[test]
+fn pickers_share_fixed_geometry_and_scroll_only_the_results() {
+    let backdrop = rule(".modal-backdrop");
+    assert_eq!(backdrop["position"], "fixed");
+    assert_eq!(backdrop["inset"], "0");
+    assert_eq!(backdrop["overflow"], "hidden");
+    let viewport = rule(".picker-viewport");
+    assert_eq!(viewport["position"], "absolute");
+    assert_eq!(viewport["height"], "100svh");
+    assert_eq!(viewport["place-items"], "center");
+    assert_eq!(viewport["overflow"], "hidden");
+    for selector in [".error-notice", ".language-options", ".target-options"] {
+        assert!(
+            backdrop["z-index"].parse::<u32>().unwrap()
+                > rule(selector)["z-index"].parse::<u32>().unwrap()
+        );
+    }
+    for edge in ["top", "right", "bottom", "left"] {
+        assert!(viewport["padding"].contains(&format!("env(safe-area-inset-{edge})")));
+    }
+    let panel = rule(".picker-panel");
+    assert_eq!(panel["width"], "min(960px, 100%)");
+    assert_eq!(panel["height"], "min(780px, 100%)");
+    assert_eq!(panel["min-height"], "0");
+    assert_eq!(panel["overflow"], "hidden");
+    assert!(!panel.contains_key("max-height"));
+    assert_eq!(CSS.matches(".picker-panel {").count(), 1);
+    assert_eq!(rule(".picker-heading")["flex"], "0 0 auto");
+    assert_eq!(rule(".skill-picker-filters")["flex"], "0 0 auto");
+    assert_eq!(rule(".source-search")["flex"], "0 0 auto");
+    let close = rule(".picker-heading .icon-button");
+    assert_eq!(close["width"], "44px");
+    assert_eq!(close["height"], "44px");
+    assert_eq!(close["flex"], "0 0 44px");
+    let list = rule(".picker-list");
+    assert_eq!(list["flex"], "1 1 auto");
+    assert_eq!(list["overflow-y"], "auto");
+    assert_eq!(list["overscroll-behavior"], "contain");
+    assert_eq!(list["min-height"], "0");
+    assert_eq!(list["scrollbar-gutter"], "stable");
+    for selector in [".skill-option", ".option-card"] {
+        assert_eq!(rule(selector)["flex"], "0 0 auto");
+    }
+}
+
+#[test]
+fn backdrop_coverage_is_independent_of_keyboard_viewport_bounds() {
+    let dialog = include_str!("../components/picker_dialog.rs");
+    let backdrop_tag = dialog
+        .split_once("class=\"modal-backdrop\"")
+        .unwrap()
+        .1
+        .split_once('>')
+        .unwrap()
+        .0;
+    assert!(!backdrop_tag.contains("style="));
+    assert!(!backdrop_tag.contains("viewport.get()"));
+    assert!(backdrop_tag.contains("on_close.run(())"));
+    let viewport_tag = dialog
+        .split_once("class=\"picker-viewport\"")
+        .unwrap()
+        .1
+        .split_once('>')
+        .unwrap()
+        .0;
+    assert!(viewport_tag.contains("style=move || viewport.get().map(Viewport::style)"));
+    assert_eq!(
+        dialog
+            .matches("viewport.get().map(Viewport::style)")
+            .count(),
+        1
+    );
+    let backdrop = rule(".modal-backdrop");
+    assert_eq!(backdrop["position"], "fixed");
+    assert_eq!(backdrop["inset"], "0");
+    assert_eq!(backdrop["background"], "var(--backdrop)");
+    for property in ["width", "height", "max-height", "padding", "transform"] {
+        assert!(!backdrop.contains_key(property));
+    }
+    assert_eq!(CSS.matches(".modal-backdrop {").count(), 1);
+    let viewport = rule(".picker-viewport");
+    assert!(!viewport.contains_key("background"));
+    assert!(!viewport.contains_key("backdrop-filter"));
+    let mobile = css_block(CSS, "@media (max-width: 880px)");
+    assert_eq!(
+        declarations(css_block(mobile, ".picker-viewport"))["--picker-inset"],
+        "0.5rem"
+    );
+}
+
+#[test]
+fn both_pickers_use_the_same_modal_lifecycle_outside_the_inert_workspace() {
+    let dialog = include_str!("../components/picker_dialog.rs");
+    for source in [
+        include_str!("../components/skill_picker.rs"),
+        include_str!("../components/source_picker.rs"),
+    ] {
+        assert!(source.contains("<PickerDialog"));
+        assert!(source.contains("class=\"picker-list\""));
+        assert!(source.contains("focus_picker_on_open(&input)"));
+        assert!(!source.contains("on:focusout"));
+        assert!(!source.contains("on:mousedown"));
+    }
+    assert!(dialog.contains("aria-modal=\"true\""));
+    assert!(dialog.contains("trap_tab(&event)"));
+    assert!(dialog.contains("restore_focus(target)"));
+    assert!(dialog.contains("event.key() == \"Escape\""));
+    assert!(
+        dialog.find("class=\"picker-heading\"").unwrap() < dialog.find("{children()}").unwrap()
+    );
+    let lock = rule("html:has(.modal-backdrop), body:has(.modal-backdrop)");
+    assert_eq!(lock["overflow"], "hidden");
+    assert_eq!(lock["overscroll-behavior"], "none");
+    assert_eq!(PAGE.matches("inert=move || state.modal_open()").count(), 3);
+    for picker in ["<SkillPicker />", "<SourcePicker />"] {
+        assert!(PAGE.find("</main>").unwrap() < PAGE.find(picker).unwrap());
+    }
+    assert!(!include_str!("../components/route_tree.rs").contains("<SourcePicker"));
+}
+
+#[test]
 fn route_skill_groups_and_recipe_metrics_fit_narrow_cards() {
     assert_eq!(rule(".skill-block")["display"], "grid");
     assert_eq!(rule(".skill-block")["gap"], "0.45rem");

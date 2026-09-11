@@ -3,7 +3,6 @@ use crate::{
     protocol::{RouteTreeNodeDto, SkillId, UpgradeSkillDto},
 };
 use leptos::prelude::*;
-use wasm_bindgen::JsCast;
 
 use super::{
     super::{
@@ -13,17 +12,8 @@ use super::{
     },
     acquisition::{AcquisitionKind, MethodLabel},
     level_flow::LevelFlow,
-    source_picker::NodeOptionsPopover,
+    source_picker::recipe_trigger_id,
 };
-
-const OPTIONS_VIEWPORT_MARGIN: f64 = 16.0;
-const OPTIONS_MAX_HEIGHT: f64 = 560.0;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct OptionsPlacement {
-    opens_upward: bool,
-    max_height: f64,
-}
 
 #[component]
 pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
@@ -45,7 +35,6 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
     let macca = grouped_digits(&estimated_macca);
     let aria_path = path.clone();
     let option_path = path.clone();
-    let popover_path = path.clone();
     let has_children = !children.is_empty();
     let acquisition_kind = AcquisitionKind::from_route(&acquisition);
     let node_class = acquisition_kind.route_card_class();
@@ -61,8 +50,6 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
         Message::ProvidedSkills
     };
     let options_controller = controller.clone();
-    let options_open_upward = RwSignal::new(false);
-    let options_max_height = RwSignal::new(OPTIONS_MAX_HEIGHT);
     let collapse_button = has_children.then(|| view! { <CollapseButton path=path.clone() /> });
     let required_view = (!required_skills.is_empty()).then(|| {
         view! {
@@ -116,32 +103,18 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
                 {can_change_recipe.then(|| view! {
                     <div class="node-action-wrap">
                         <button
+                            id=recipe_trigger_id(&path)
                             class="button button-secondary node-action"
                             type="button"
+                            aria-haspopup="dialog"
                             disabled=move || !state.can_edit_route()
                             on:click=move |event| {
                                 focus_current_target(&event);
-                                place_options(
-                                    &event,
-                                    options_open_upward,
-                                    options_max_height,
-                                );
                                 options_controller.open_options(option_path.clone());
                             }
                         >
                             {move || i18n.text(Message::ChoosePlan)}
                         </button>
-                        <Show when=move || state.panel_path.get().as_ref() == Some(&popover_path)>
-                            <div
-                                class="node-options-backdrop"
-                                aria-hidden="true"
-                                on:click=move |_| state.close_options()
-                            ></div>
-                            <NodeOptionsPopover
-                                open_upward=options_open_upward
-                                max_height=options_max_height
-                            />
-                        </Show>
                     </div>
                 })}
             </article>
@@ -149,49 +122,6 @@ pub(super) fn RouteNode(node: RouteTreeNodeDto) -> AnyView {
         </li>
     }
     .into_any()
-}
-
-fn place_options(
-    event: &web_sys::MouseEvent,
-    open_upward: RwSignal<bool>,
-    max_height: RwSignal<f64>,
-) {
-    let Some(trigger) = event
-        .current_target()
-        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
-    else {
-        return;
-    };
-    let Some(viewport_height) = web_sys::window()
-        .and_then(|window| window.inner_height().ok())
-        .and_then(|height| height.as_f64())
-    else {
-        return;
-    };
-
-    let bounds = trigger.get_bounding_client_rect();
-    let placement = options_placement(bounds.top(), bounds.bottom(), viewport_height);
-    open_upward.set(placement.opens_upward);
-    max_height.set(placement.max_height);
-}
-
-fn options_placement(
-    trigger_top: f64,
-    trigger_bottom: f64,
-    viewport_height: f64,
-) -> OptionsPlacement {
-    let space_above = (trigger_top - OPTIONS_VIEWPORT_MARGIN).max(0.0);
-    let space_below = (viewport_height - trigger_bottom - OPTIONS_VIEWPORT_MARGIN).max(0.0);
-    let opens_upward = space_above > space_below;
-    let available_height = if opens_upward {
-        space_above
-    } else {
-        space_below
-    };
-    OptionsPlacement {
-        opens_upward,
-        max_height: available_height.min(OPTIONS_MAX_HEIGHT),
-    }
 }
 
 #[component]
@@ -297,7 +227,7 @@ fn skill_badge(
 mod tests {
     use smt5_fusion_core::dataset::{demon_ids, skill_ids};
 
-    use super::{OptionsPlacement, SkillLearning, options_placement, skill_groups, skill_learning};
+    use super::{SkillLearning, skill_groups, skill_learning};
     use crate::{
         i18n::Message,
         protocol::{
@@ -405,38 +335,6 @@ mod tests {
                     vec![skill_ids::BUFU, skill_ids::AGI]
                 ),
             ]
-        );
-    }
-
-    #[test]
-    fn source_picker_uses_the_larger_visible_side() {
-        assert_eq!(
-            options_placement(900.0, 942.0, 1000.0),
-            OptionsPlacement {
-                opens_upward: true,
-                max_height: 560.0,
-            }
-        );
-        assert_eq!(
-            options_placement(40.0, 82.0, 1000.0),
-            OptionsPlacement {
-                opens_upward: false,
-                max_height: 560.0,
-            }
-        );
-        assert_eq!(
-            options_placement(300.0, 342.0, 600.0),
-            OptionsPlacement {
-                opens_upward: true,
-                max_height: 284.0,
-            }
-        );
-        assert_eq!(
-            options_placement(100.0, 142.0, 400.0),
-            OptionsPlacement {
-                opens_upward: false,
-                max_height: 242.0,
-            }
         );
     }
 }

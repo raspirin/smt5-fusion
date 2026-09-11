@@ -141,6 +141,10 @@ impl AppState {
         self.worker_ready() && self.catalog.get().is_some() && self.target.get().is_some()
     }
 
+    pub(super) fn modal_open(self) -> bool {
+        self.skill_picker_open.get() || self.panel_path.get().is_some()
+    }
+
     pub(super) fn result_is_stale(self) -> bool {
         self.result.with(|result| {
             result.as_ref().is_some_and(|result| {
@@ -346,6 +350,7 @@ impl AppState {
                         self.active_mutation.set(None);
                         self.mutation_path.set(None);
                         self.selection_busy.set(false);
+                        self.close_options();
                     }
                     self.error.set(Some(AppError::WorkerFailure(failure)));
                 });
@@ -389,6 +394,8 @@ impl AppState {
 
     pub(super) fn begin_options_request(self, request_id: u64, path: Vec<u8>) {
         batch(|| {
+            self.target_picker_open.set(false);
+            self.close_skill_picker();
             self.options.set(None);
             self.options_indicator_visible.set(false);
             self.option_query.set(String::new());
@@ -753,6 +760,8 @@ impl Controller {
     pub(super) fn open_skill_picker(&self, slot: usize) {
         if untrack(|| self.state.can_edit_skills()) && slot < SKILL_CAPACITY {
             batch(|| {
+                self.state.target_picker_open.set(false);
+                self.state.close_options();
                 self.state.skill_picker_slot.set(Some(slot));
                 self.state.skill_picker_open.set(true);
             });

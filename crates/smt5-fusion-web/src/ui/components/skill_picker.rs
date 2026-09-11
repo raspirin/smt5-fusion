@@ -1,16 +1,15 @@
-use leptos::prelude::*;
-use wasm_bindgen::JsCast;
-
 use crate::{
     i18n::{Message, skill_category_slug},
     protocol::SkillCatalogDto,
 };
+use leptos::prelude::*;
 
 use super::super::{
-    events::{active_element, focus_picker_on_open, restore_focus, trap_tab},
+    events::focus_picker_on_open,
     selectors::{category_code, category_from_code, filtered_skills, skill_categories},
     state::Controller,
 };
+use super::picker_dialog::PickerDialog;
 
 #[component]
 pub(crate) fn SkillPicker() -> impl IntoView {
@@ -26,57 +25,19 @@ pub(crate) fn SkillPicker() -> impl IntoView {
 fn SkillPickerDialog() -> impl IntoView {
     let state = expect_context::<Controller>().state;
     let i18n = state.i18n;
-    let return_slot = state.skill_picker_slot.get_untracked();
+    let return_focus_id = state
+        .skill_picker_slot
+        .get_untracked()
+        .map(|slot| format!("skill-slot-{slot}"));
     let input_ref = NodeRef::<leptos::html::Input>::new();
     input_ref.on_load(|input| focus_picker_on_open(&input));
-    on_cleanup(move || {
-        leptos::leptos_dom::helpers::queue_microtask(move || {
-            if active_element().is_none_or(|element| element.tag_name() == "BODY") {
-                let target = return_slot.and_then(|slot| {
-                    web_sys::window()?
-                        .document()?
-                        .get_element_by_id(&format!("skill-slot-{slot}"))?
-                        .dyn_into()
-                        .ok()
-                });
-                restore_focus(target);
-            }
-        });
-    });
     view! {
-            <div
-                class="modal-backdrop"
-                role="presentation"
-                on:click=move |_| state.close_skill_picker()
+            <PickerDialog
+                heading_id="skill-picker-heading"
+                title=Signal::derive(move || i18n.text(Message::SkillPickerTitle))
+                on_close=Callback::new(move |()| state.close_skill_picker())
+                return_focus_id
             >
-                <section
-                    class="picker-panel"
-                    role="dialog"
-                    tabindex="-1"
-                    aria-modal="true"
-                    aria-labelledby="skill-picker-heading"
-                    on:click=move |event: web_sys::MouseEvent| event.stop_propagation()
-                    on:keydown=move |event: web_sys::KeyboardEvent| {
-                        if event.key() == "Escape" {
-                            event.prevent_default();
-                            event.stop_propagation();
-                            state.close_skill_picker();
-                        } else {
-                            trap_tab(&event);
-                        }
-                    }
-                >
-                    <div class="node-options-heading">
-                        <strong id="skill-picker-heading">{move || i18n.text(Message::SkillPickerTitle)}</strong>
-                        <button
-                            class="icon-button"
-                            type="button"
-                            aria-label=move || i18n.text(Message::Close)
-                            on:click=move |_| state.close_skill_picker()
-                        >
-                            "×"
-                        </button>
-                    </div>
                     <div class="skill-picker-filters">
                         <input
                             class="text-input"
@@ -100,7 +61,7 @@ fn SkillPickerDialog() -> impl IntoView {
                             }).collect_view()}
                         </select>
                     </div>
-                    <div class="node-option-list skill-picker-list">
+                    <div class="picker-list">
                         {move || {
                             let skills = filtered_skills(state);
                             if skills.is_empty() {
@@ -112,8 +73,7 @@ fn SkillPickerDialog() -> impl IntoView {
                             }
                         }}
                     </div>
-                </section>
-            </div>
+            </PickerDialog>
     }
 }
 

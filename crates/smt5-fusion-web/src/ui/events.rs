@@ -133,11 +133,13 @@ mod tests {
             include_str!("components/source_picker.rs"),
         ] {
             assert!(source.contains("focus_picker_on_open(&input)"));
-            assert!(source.contains("role=\"dialog\""));
-            assert!(source.contains("tabindex=\"-1\""));
+            assert!(source.contains("<PickerDialog"));
             assert!(!source.contains("input.focus()"));
             assert!(!source.contains("autofocus"));
         }
+        let dialog = include_str!("components/picker_dialog.rs");
+        assert!(dialog.contains("role=\"dialog\""));
+        assert!(dialog.contains("tabindex=\"-1\""));
     }
 
     #[test]
