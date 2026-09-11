@@ -190,6 +190,7 @@ html:lang(ja-JP) {
 html {
     min-width: 320px;
     min-height: 100%;
+    scrollbar-gutter: stable;
     background: var(--canvas);
 }
 
@@ -889,8 +890,7 @@ h3 {
     flex: 1;
 }
 
-.inline-status,
-.panel-loading {
+.inline-status {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1272,7 +1272,6 @@ body:has(.modal-backdrop) {
     overflow: hidden;
     overscroll-behavior: none;
     background: var(--backdrop);
-    backdrop-filter: blur(2px);
 }
 
 .picker-viewport {

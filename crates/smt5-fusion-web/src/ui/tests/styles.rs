@@ -300,9 +300,17 @@ fn backdrop_coverage_is_independent_of_keyboard_viewport_bounds() {
     assert_eq!(backdrop["position"], "fixed");
     assert_eq!(backdrop["inset"], "0");
     assert_eq!(backdrop["background"], "var(--backdrop)");
-    for property in ["width", "height", "max-height", "padding", "transform"] {
+    for property in [
+        "width",
+        "height",
+        "max-height",
+        "padding",
+        "transform",
+        "backdrop-filter",
+    ] {
         assert!(!backdrop.contains_key(property));
     }
+    assert_eq!(rule("html")["scrollbar-gutter"], "stable");
     assert_eq!(CSS.matches(".modal-backdrop {").count(), 1);
     let viewport = rule(".picker-viewport");
     assert!(!viewport.contains_key("background"));
